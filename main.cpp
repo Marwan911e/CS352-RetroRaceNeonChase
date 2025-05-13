@@ -1,72 +1,135 @@
 #include <windows.h>
-#include <GL/glu.h>
-#include <GL/gl.h>
 #include <GL/glut.h>
-#include <stdlib.h>
 #include <cmath>
 #include <vector>
 #include <ctime>
-#include <cstdio>  // Added for sprintf
+#include <string>
+#include <iostream>
+#include <cstdio>
 
 // Window dimensions
 const int SCR_WIDTH = 1200;
 const int SCR_HEIGHT = 800;
 
-// Maximum number of cars
-#define MAX_CARS 10
-
 // Camera variables
-float cameraX = 0.0f;
-float cameraY = 10.0f;
-float cameraZ = 30.0f;
-float lookX = 0.0f;
-float lookY = 0.0f;
-float lookZ = -1.0f;
+float cameraX = 0.0f, cameraY = 10.0f, cameraZ = 30.0f;
+float lookX = 0.0f, lookY = 0.0f, lookZ = -1.0f;
 
 // Animation variables
 float gridOffset = 0.0f;
 float vortexAngle = 0.0f;
-float carPosition = -50.0f;
+float tunnelDepth = 0.0f;
 float lastTime = 0.0f;
-float carSpeeds[MAX_CARS] = {0.0f};
 float buildingPulse = 0.0f;
-float sunPosition = -20.0f;
-bool dayNightCycle = false; // Changed to false to remove day cycle
-float skyHue = 0.0f;
+bool showMusicVisualization = true;
 
-// Building data structure
+// Object structures
 struct Building {
-    float x, z;
-    float width, height, depth;
+    float x, z, width, height, depth;
 };
 
-// Enhanced Star data structure
 struct Star {
-    float x, y, z;
-    float brightness;
-    float size;
-    int colorType; // 0=white/blue, 1=yellow/red, 2=special
+    float x, y, z, brightness, size;
+    int colorType;
 };
 
-// New Galaxy structure
-struct Galaxy {
+struct Spinner {
     float x, y, z;
-    float rotation;
-    float size;
-    int type; // 0=spiral, 1=elliptical
+    float radius, rotation;
+    float rotationSpeed;
+    int type; // 0=circular, 1=spiral
+    bool isPink; // true=pink, false=blue
 };
 
-// Car data structure
 struct Car {
     float x, z;
     bool isBlue;
+    float speed;
 };
 
-// Collections of objects
+// Collections
 std::vector<Building> buildings;
 std::vector<Star> stars;
-std::vector<Galaxy> galaxies;
+std::vector<Spinner> spinners;
 std::vector<Car> cars;
+
+// Music player (Windows-native)
+class SimpleAudioPlayer {
+private:
+    bool isPlaying;
+    float volume;
+    std::string currentFile;
+
+public:
+    SimpleAudioPlayer() : isPlaying(false), volume(0.5f) {}
+
+    bool playMusic(const std::string& filename) {
+        stopMusic();
+        std::string openCommand = "open \"" + filename + "\" type mpegvideo alias retroMusic";
+        if (mciSendStringA(openCommand.c_str(), NULL, 0, NULL) != 0) {
+            std::cerr << "Failed to open MP3 file: " << filename << std::endl;
+            return false;
+        }
+
+        setVolume(volume);
+        std::string playCommand = "play retroMusic repeat";
+        if (mciSendStringA(playCommand.c_str(), NULL, 0, NULL) != 0) {
+            std::cerr << "Failed to play MP3 file" << std::endl;
+            mciSendStringA("close retroMusic", NULL, 0, NULL);
+            return false;
+        }
+
+        currentFile = filename;
+        isPlaying = true;
+        return true;
+    }
+
+    void toggleMusic() {
+        if (isPlaying) {
+            mciSendStringA("pause retroMusic", NULL, 0, NULL);
+            isPlaying = false;
+        } else {
+            mciSendStringA("resume retroMusic", NULL, 0, NULL);
+            isPlaying = true;
+        }
+    }
+
+    void stopMusic() {
+        if (isPlaying) {
+            mciSendStringA("stop retroMusic", NULL, 0, NULL);
+            mciSendStringA("close retroMusic", NULL, 0, NULL);
+            isPlaying = false;
+        }
+    }
+
+    void setVolume(float vol) {
+        volume = (vol < 0.0f) ? 0.0f : (vol > 1.0f) ? 1.0f : vol;
+        int winVolume = static_cast<int>(volume * 1000);
+        char buffer[50];
+        sprintf(buffer, "%d", winVolume);
+        std::string volCommand = "setaudio retroMusic volume to ";
+        volCommand += buffer;
+        mciSendStringA(volCommand.c_str(), NULL, 0, NULL);
+    }
+
+    void adjustVolume(float change) {
+        setVolume(volume + change);
+        std::cout << "Volume: " << (volume * 100) << "%" << std::endl;
+    }
+
+    ~SimpleAudioPlayer() {
+        stopMusic();
+    }
+};
+
+// Global audio player
+SimpleAudioPlayer audioPlayer;
+
+// FPS calculation
+int frameCount = 0;
+float fps = 0.0f;
+float currentTime = 0.0f;
+float previousTime = 0.0f;
 
 // Function prototypes
 void init();
@@ -75,31 +138,23 @@ void reshape(int width, int height);
 void timer(int value);
 void keyboard(unsigned char key, int x, int y);
 void specialKeys(int key, int x, int y);
-void drawBuilding(const Building& building, bool drawWindows);
+void drawBuilding(const Building& building);
 void drawGrid(float size, int divisions);
-void drawVortex(float radius, int segments, int rings);
+void drawSpinners();
+void drawSpinner(const Spinner& spinner, float time);
+void drawTunnel(float radius, int segments, int rings);
 void drawCar(const Car& car);
 void drawSky();
-void drawMoon();
-void drawGalaxies();
 void calculateFPS();
-void initCarSpeeds();
-void initStars();
-void initGalaxies();
-void improveGraphicsQuality();
-
-// FPS calculation
-int frameCount = 0;
-float fps = 0.0f;
-float currentTime = 0.0f;
-float previousTime = 0.0f;
+void initAudio();
+void cleanup();
 
 int main(int argc, char** argv) {
     // Initialize GLUT
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
     glutInitWindowSize(SCR_WIDTH, SCR_HEIGHT);
-    glutCreateWindow("Enhanced Retrowave Landscape");
+    glutCreateWindow("Retrowave City");
 
     // Register callbacks
     glutDisplayFunc(display);
@@ -111,6 +166,12 @@ int main(int argc, char** argv) {
     // Initialize OpenGL
     init();
 
+    // Initialize audio (play the background music)
+    initAudio();
+
+    // Register cleanup function
+    atexit(cleanup);
+
     // Start main loop
     glutMainLoop();
 
@@ -119,27 +180,23 @@ int main(int argc, char** argv) {
 
 void init() {
     // Set background color (deep purple)
-    glClearColor(0.02f, 0.0f, 0.05f, 1.0f);
+    glClearColor(0.05f, 0.0f, 0.1f, 1.0f);
 
-    // Enable depth testing
+    // Enable depth testing and lighting
     glEnable(GL_DEPTH_TEST);
-
-    // Enable lighting
     glEnable(GL_LIGHTING);
     glEnable(GL_LIGHT0);
 
-    // Setup light 0
+    // Setup light
     GLfloat ambientLight[] = { 0.1f, 0.1f, 0.2f, 1.0f };
     GLfloat diffuseLight[] = { 0.8f, 0.8f, 1.0f, 1.0f };
-    GLfloat specularLight[] = { 1.0f, 1.0f, 1.0f, 1.0f };
     GLfloat position[] = { -10.0f, 20.0f, 10.0f, 1.0f };
 
     glLightfv(GL_LIGHT0, GL_AMBIENT, ambientLight);
     glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuseLight);
-    glLightfv(GL_LIGHT0, GL_SPECULAR, specularLight);
     glLightfv(GL_LIGHT0, GL_POSITION, position);
 
-    // Enable color material mode
+    // Enable color material
     glEnable(GL_COLOR_MATERIAL);
     glColorMaterial(GL_FRONT, GL_AMBIENT_AND_DIFFUSE);
 
@@ -165,46 +222,7 @@ void init() {
     }
 
     // Initialize stars
-    initStars();
-
-    // Initialize galaxies
-    initGalaxies();
-
-    // Create cars
-    Car car1;
-    car1.x = -5.0f;
-    car1.z = 0.0f;
-    car1.isBlue = false; // Pink car
-    cars.push_back(car1);
-
-    Car car2;
-    car2.x = 5.0f;
-    car2.z = -10.0f;
-    car2.isBlue = true; // Blue car
-    cars.push_back(car2);
-
-    // Add some additional cars with random positions
-    for (int i = 0; i < 3; i++) {
-        Car newCar;
-        newCar.x = -8.0f + static_cast<float>(rand()) / RAND_MAX * 16.0f;
-        newCar.z = -30.0f + static_cast<float>(rand()) / RAND_MAX * 60.0f;
-        newCar.isBlue = (rand() % 2 == 0);
-        cars.push_back(newCar);
-    }
-
-    // Initialize car speeds
-    initCarSpeeds();
-
-    // Improve graphics quality
-    improveGraphicsQuality();
-
-    // Initialize time
-    previousTime = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
-}
-
-void initStars() {
-    stars.clear();
-    for (int i = 0; i < 300; i++) { // Increased number of stars
+    for (int i = 0; i < 200; i++) {
         Star s;
         s.x = -150.0f + static_cast<float>(rand()) / RAND_MAX * 300.0f;
         s.y = 20.0f + static_cast<float>(rand()) / RAND_MAX * 80.0f;
@@ -214,81 +232,64 @@ void initStars() {
         s.colorType = rand() % 10; // Different star colors
         stars.push_back(s);
     }
-}
 
-void initGalaxies() {
+    // Initialize spinners
+    // Main spinner (vortex tunnel in the sky)
+    Spinner mainVortex;
+    mainVortex.x = 0.0f;
+    mainVortex.y = 30.0f;
+    mainVortex.z = -80.0f;
+    mainVortex.radius = 25.0f;
+    mainVortex.rotation = 0.0f;
+    mainVortex.rotationSpeed = 30.0f;
+    mainVortex.type = 1; // spiral
+    mainVortex.isPink = true;
+    spinners.push_back(mainVortex);
+
+    // Additional floating spinners
     for (int i = 0; i < 3; i++) {
-        Galaxy g;
-        g.x = -80.0f + static_cast<float>(rand()) / RAND_MAX * 160.0f;
-        g.y = 30.0f + static_cast<float>(rand()) / RAND_MAX * 60.0f;
-        g.z = -90.0f + static_cast<float>(rand()) / RAND_MAX * 20.0f;
-        g.rotation = static_cast<float>(rand()) / RAND_MAX * 360.0f;
-        g.size = 10.0f + static_cast<float>(rand()) / RAND_MAX * 15.0f;
-        g.type = rand() % 2;
-        galaxies.push_back(g);
+        Spinner s;
+        s.x = -40.0f + static_cast<float>(rand()) / RAND_MAX * 80.0f;
+        s.y = 15.0f + static_cast<float>(rand()) / RAND_MAX * 20.0f;
+        s.z = -100.0f + static_cast<float>(rand()) / RAND_MAX * 40.0f;
+        s.radius = 3.0f + static_cast<float>(rand()) / RAND_MAX * 5.0f;
+        s.rotation = 0.0f;
+        s.rotationSpeed = 10.0f + static_cast<float>(rand()) / RAND_MAX * 30.0f;
+        s.type = rand() % 2;
+        s.isPink = (rand() % 2 == 0);
+        spinners.push_back(s);
     }
-}
 
-void improveGraphicsQuality() {
-    // Enable anti-aliasing for smoother lines
+    // Create cars
+    for (int i = 0; i < 5; i++) {
+        Car car;
+        car.x = -8.0f + static_cast<float>(rand()) / RAND_MAX * 16.0f;
+        car.z = -50.0f + static_cast<float>(rand()) / RAND_MAX * 60.0f;
+        car.isBlue = (rand() % 2 == 0);
+        car.speed = 15.0f + static_cast<float>(rand()) / RAND_MAX * 10.0f;
+        cars.push_back(car);
+    }
+
+    // Initialize time
+    previousTime = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
+
+    // Better graphics quality
     glEnable(GL_POINT_SMOOTH);
     glEnable(GL_LINE_SMOOTH);
-    glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
-    glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
-
-    // Improve lighting quality
     glShadeModel(GL_SMOOTH);
-
-    // Better perspective correction
-    glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST);
-
-    // Enhanced depth precision
-    glClearDepth(1.0f);
-    glDepthFunc(GL_LEQUAL);
-
-    // Improve light settings
-    GLfloat ambientLight[] = { 0.1f, 0.1f, 0.2f, 1.0f }; // Darker blue ambient
-    GLfloat diffuseLight[] = { 0.8f, 0.8f, 1.0f, 1.0f }; // Slightly blue diffuse
-    GLfloat specularLight[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-    GLfloat position[] = { -10.0f, 20.0f, 10.0f, 1.0f }; // Light from front-left
-
-    glLightfv(GL_LIGHT0, GL_AMBIENT, ambientLight);
-    glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuseLight);
-    glLightfv(GL_LIGHT0, GL_SPECULAR, specularLight);
-    glLightfv(GL_LIGHT0, GL_POSITION, position);
-
-    // Add a second light
-    glEnable(GL_LIGHT1);
-    GLfloat ambient1[] = { 0.0f, 0.0f, 0.0f, 1.0f };
-    GLfloat diffuse1[] = { 0.4f, 0.2f, 0.6f, 1.0f }; // Purple hue
-    GLfloat specular1[] = { 0.5f, 0.3f, 0.7f, 1.0f };
-    GLfloat position1[] = { 30.0f, 20.0f, -20.0f, 1.0f }; // From back-right
-
-    glLightfv(GL_LIGHT1, GL_AMBIENT, ambient1);
-    glLightfv(GL_LIGHT1, GL_DIFFUSE, diffuse1);
-    glLightfv(GL_LIGHT1, GL_SPECULAR, specular1);
-    glLightfv(GL_LIGHT1, GL_POSITION, position1);
-
-    // Set material properties
-    GLfloat matAmbient[] = { 0.4f, 0.4f, 0.4f, 1.0f };
-    GLfloat matDiffuse[] = { 0.8f, 0.8f, 0.8f, 1.0f };
-    GLfloat matSpecular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-    GLfloat matShininess[] = { 50.0f };
-
-    glMaterialfv(GL_FRONT, GL_AMBIENT, matAmbient);
-    glMaterialfv(GL_FRONT, GL_DIFFUSE, matDiffuse);
-    glMaterialfv(GL_FRONT, GL_SPECULAR, matSpecular);
-    glMaterialfv(GL_FRONT, GL_SHININESS, matShininess);
 }
 
-void initCarSpeeds() {
-    for (size_t i = 0; i < MAX_CARS; i++) {
-        if (i < cars.size()) {
-            carSpeeds[i] = 15.0f + static_cast<float>(rand()) / RAND_MAX * 10.0f;
-        } else {
-            carSpeeds[i] = 0.0f;
-        }
+void initAudio() {
+    // PLACE YOUR MP3 FILE IN THE SAME FOLDER AS YOUR EXE FILE
+    std::string musicFile = "retrowave_music.mp3";
+
+    if (!audioPlayer.playMusic(musicFile)) {
+        std::cerr << "Warning: Failed to play background music." << std::endl;
     }
+}
+
+void cleanup() {
+    audioPlayer.stopMusic();
 }
 
 void display() {
@@ -303,27 +304,29 @@ void display() {
               cameraX + lookX, cameraY + lookY, cameraZ + lookZ,
               0.0f, 1.0f, 0.0f);
 
-    // Draw sky with stars and galaxies
+    // Draw sky with stars
     drawSky();
+
+    // Draw spinners (futuristic elements)
+    drawSpinners();
 
     // Disable lighting temporarily for neon effects
     glDisable(GL_LIGHTING);
+
+    // Draw tunnel effect in the sky
+    drawTunnel(30.0f, 36, 15);
 
     // Draw grid
     drawGrid(100.0f, 40);
 
     // Draw buildings
     for (size_t i = 0; i < buildings.size(); i++) {
-        drawBuilding(buildings[i], true);
+        drawBuilding(buildings[i]);
     }
 
-    // Draw vortex
-    drawVortex(20.0f, 36, 10);
-
-    // Draw cars with their positions
+    // Draw cars
     for (size_t i = 0; i < cars.size(); i++) {
-        Car carToDraw = cars[i];
-        drawCar(carToDraw);
+        drawCar(cars[i]);
     }
 
     // Re-enable lighting
@@ -340,11 +343,9 @@ void reshape(int width, int height) {
     // Set viewport to window dimensions
     glViewport(0, 0, width, height);
 
-    // Set the projection matrix
+    // Set perspective projection
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-
-    // Set perspective projection
     gluPerspective(45.0f, (float)width / (float)height, 0.1f, 500.0f);
 
     // Switch back to modelview matrix
@@ -358,37 +359,34 @@ void timer(int value) {
     float deltaTime = currentTime - lastTime;
     lastTime = currentTime;
 
-    // Update grid animation (smoother with delta time)
+    // Update grid animation
     gridOffset += 0.8f * deltaTime;
-    if (gridOffset > 1.0f) {
-        gridOffset -= 1.0f;
-    }
+    if (gridOffset > 1.0f) gridOffset -= 1.0f;
 
-    // Update vortex with variable speed
-    float vortexSpeed = 25.0f + 15.0f * sinf(currentTime * 0.2f); // Speed varies over time
+    // Update vortex angle
+    float vortexSpeed = 25.0f + 15.0f * sinf(currentTime * 0.2f);
     vortexAngle += vortexSpeed * deltaTime;
-    if (vortexAngle > 360.0f) {
-        vortexAngle -= 360.0f;
+    if (vortexAngle > 360.0f) vortexAngle -= 360.0f;
+
+    // Update tunnel depth
+    tunnelDepth += 15.0f * deltaTime;
+    if (tunnelDepth > 10.0f) tunnelDepth -= 10.0f;
+
+    // Update spinner rotations
+    for (size_t i = 0; i < spinners.size(); i++) {
+        spinners[i].rotation += spinners[i].rotationSpeed * deltaTime;
+        if (spinners[i].rotation > 360.0f) spinners[i].rotation -= 360.0f;
     }
 
-    // Update car movement with variable speeds
+    // Update car movement
     for (size_t i = 0; i < cars.size(); i++) {
-        // If this is the first update, initialize random speeds
-        if (carSpeeds[i] == 0.0f) {
-            carSpeeds[i] = 15.0f + static_cast<float>(rand()) / RAND_MAX * 10.0f;
-
-            // Randomize car positions so they're not all in sync
-            cars[i].z = -50.0f + static_cast<float>(rand()) / RAND_MAX * 100.0f;
-        }
-
         // Move cars with their individual speeds
-        cars[i].z += carSpeeds[i] * deltaTime;
+        cars[i].z += cars[i].speed * deltaTime;
 
         // Reset position when car goes too far
         if (cars[i].z > 50.0f) {
             cars[i].z = -50.0f;
-            // Randomize speed again
-            carSpeeds[i] = 15.0f + static_cast<float>(rand()) / RAND_MAX * 10.0f;
+            cars[i].speed = 15.0f + static_cast<float>(rand()) / RAND_MAX * 10.0f;
 
             // 20% chance to switch color when respawning
             if (rand() % 5 == 0) {
@@ -414,45 +412,38 @@ void keyboard(unsigned char key, int x, int y) {
         case 27: // ESC key
             exit(0);
             break;
-        case 'w':
+        case 'w': // Move forward
             cameraX += lookX * speed;
             cameraZ += lookZ * speed;
             break;
-        case 's':
+        case 's': // Move backward
             cameraX -= lookX * speed;
             cameraZ -= lookZ * speed;
             break;
-        case 'a':
+        case 'a': // Strafe left
             cameraX -= lookZ * speed;
             cameraZ += lookX * speed;
             break;
-        case 'd':
+        case 'd': // Strafe right
             cameraX += lookZ * speed;
             cameraZ -= lookX * speed;
             break;
-        case 'q':
+        case 'q': // Move up
             cameraY += speed;
             break;
-        case 'e':
+        case 'e': // Move down
             cameraY -= speed;
             break;
-        case '+': // Add a new car
-            if (cars.size() < MAX_CARS) {
-                Car newCar;
-                newCar.x = -5.0f + static_cast<float>(rand()) / RAND_MAX * 10.0f;
-                newCar.z = -50.0f + static_cast<float>(rand()) / RAND_MAX * 100.0f;
-                newCar.isBlue = (rand() % 2 == 0);
-                cars.push_back(newCar);
-                carSpeeds[cars.size()-1] = 0.0f; // Will be initialized in timer
-            }
+        case 'p': // Toggle music playback
+            audioPlayer.toggleMusic();
             break;
-        case '-': // Remove a car
-            if (cars.size() > 1) {
-                cars.pop_back();
-            }
+        case '+': // Increase volume
+            audioPlayer.adjustVolume(0.1f);
+            break;
+        case '-': // Decrease volume
+            audioPlayer.adjustVolume(-0.1f);
             break;
     }
-
     glutPostRedisplay();
 }
 
@@ -467,7 +458,6 @@ void specialKeys(int key, int x, int y) {
             lookY -= rotationSpeed;
             break;
         case GLUT_KEY_LEFT:
-            // Rotate look direction left
             {
                 float tempX = lookX;
                 lookX = lookX * cosf(rotationSpeed) - lookZ * sinf(rotationSpeed);
@@ -475,7 +465,6 @@ void specialKeys(int key, int x, int y) {
             }
             break;
         case GLUT_KEY_RIGHT:
-            // Rotate look direction right
             {
                 float tempX = lookX;
                 lookX = lookX * cosf(-rotationSpeed) - lookZ * sinf(-rotationSpeed);
@@ -493,7 +482,7 @@ void specialKeys(int key, int x, int y) {
     glutPostRedisplay();
 }
 
-void drawBuilding(const Building& building, bool drawWindows) {
+void drawBuilding(const Building& building) {
     float x = building.x;
     float z = building.z;
     float width = building.width;
@@ -502,355 +491,186 @@ void drawBuilding(const Building& building, bool drawWindows) {
     float halfWidth = width / 2.0f;
     float halfDepth = depth / 2.0f;
 
-    // Get current time for animations
     float time = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
-
-    // Building hover effect - slight vertical movement
     float buildingOffset = sinf(time * 0.5f + x * 0.1f) * 0.2f;
 
-    // ENHANCEMENT: More detailed building with gradients
-    glBegin(GL_QUADS);
-
-    // Front face with enhanced gradient
-    glColor3f(0.9f, 0.1f, 0.8f); // Brighter pink at bottom
-    glVertex3f(x - halfWidth, 0.0f, z + halfDepth);
-    glVertex3f(x + halfWidth, 0.0f, z + halfDepth);
-    glColor3f(0.5f, 0.0f, 0.9f); // Deep purple at top
-    glVertex3f(x + halfWidth, height + buildingOffset, z + halfDepth);
-    glVertex3f(x - halfWidth, height + buildingOffset, z + halfDepth);
-
-    // Back face with gradient
-    glColor3f(0.9f, 0.1f, 0.8f); // Brighter pink at bottom
-    glVertex3f(x - halfWidth, 0.0f, z - halfDepth);
-    glVertex3f(x + halfWidth, 0.0f, z - halfDepth);
-    glColor3f(0.5f, 0.0f, 0.9f); // Deep purple at top
-    glVertex3f(x + halfWidth, height + buildingOffset, z - halfDepth);
-    glVertex3f(x - halfWidth, height + buildingOffset, z - halfDepth);
-
-    // Left face with gradient
-    glColor3f(0.9f, 0.1f, 0.8f); // Brighter pink at bottom
-    glVertex3f(x - halfWidth, 0.0f, z - halfDepth);
-    glVertex3f(x - halfWidth, 0.0f, z + halfDepth);
-    glColor3f(0.5f, 0.0f, 0.9f); // Deep purple at top
-    glVertex3f(x - halfWidth, height + buildingOffset, z + halfDepth);
-    glVertex3f(x - halfWidth, height + buildingOffset, z - halfDepth);
-
-    // Right face with gradient
-    glColor3f(0.9f, 0.1f, 0.8f); // Brighter pink at bottom
-    glVertex3f(x + halfWidth, 0.0f, z - halfDepth);
-    glVertex3f(x + halfWidth, 0.0f, z + halfDepth);
-    glColor3f(0.5f, 0.0f, 0.9f); // Deep purple at top
-    glVertex3f(x + halfWidth, height + buildingOffset, z + halfDepth);
-    glVertex3f(x + halfWidth, height + buildingOffset, z - halfDepth);
-
-    // Top face
-    glColor3f(0.5f, 0.0f, 0.9f); // Deep purple
-    glVertex3f(x - halfWidth, height + buildingOffset, z - halfDepth);
-    glVertex3f(x + halfWidth, height + buildingOffset, z - halfDepth);
-    glVertex3f(x + halfWidth, height + buildingOffset, z + halfDepth);
-    glVertex3f(x - halfWidth, height + buildingOffset, z + halfDepth);
-    glEnd();
-
-    // ENHANCEMENT: Add building trim/edges with neon glow
+    // Draw building with neon outlines
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glLineWidth(3.0f);  // Thicker lines for better visibility
 
-    // Edge glow color
-    float edgePulse = 0.7f + 0.3f * sinf(time * 2.0f);
-    glColor4f(0.0f, 1.0f, 1.0f, 0.8f * edgePulse); // Bright cyan
+    // Building outline color - hot pink (classic retrowave color)
+    glColor4f(1.0f, 0.1f, 0.8f, 0.95f);  // More vibrant pink
 
-    float edgeWidth = 0.15f;
+    // Front face - vertical edges
+    glBegin(GL_LINES);
+    // Left vertical edge
+    glVertex3f(x - halfWidth, 0.0f, z + halfDepth);
+    glVertex3f(x - halfWidth, height + buildingOffset, z + halfDepth);
 
-    // Vertical edges
-    // Front left edge
-    glBegin(GL_QUADS);
-    glVertex3f(x - halfWidth - edgeWidth/2, 0.0f, z + halfDepth + edgeWidth/2);
-    glVertex3f(x - halfWidth + edgeWidth/2, 0.0f, z + halfDepth + edgeWidth/2);
-    glVertex3f(x - halfWidth + edgeWidth/2, height + buildingOffset, z + halfDepth + edgeWidth/2);
-    glVertex3f(x - halfWidth - edgeWidth/2, height + buildingOffset, z + halfDepth + edgeWidth/2);
+    // Right vertical edge
+    glVertex3f(x + halfWidth, 0.0f, z + halfDepth);
+    glVertex3f(x + halfWidth, height + buildingOffset, z + halfDepth);
+
+    // Horizontal edges - front face
+    glVertex3f(x - halfWidth, 0.0f, z + halfDepth);
+    glVertex3f(x + halfWidth, 0.0f, z + halfDepth);
+
+    glVertex3f(x - halfWidth, height + buildingOffset, z + halfDepth);
+    glVertex3f(x + halfWidth, height + buildingOffset, z + halfDepth);
+
+    // Back face - vertical edges
+    glVertex3f(x - halfWidth, 0.0f, z - halfDepth);
+    glVertex3f(x - halfWidth, height + buildingOffset, z - halfDepth);
+
+    glVertex3f(x + halfWidth, 0.0f, z - halfDepth);
+    glVertex3f(x + halfWidth, height + buildingOffset, z - halfDepth);
+
+    // Horizontal edges - back face
+    glVertex3f(x - halfWidth, 0.0f, z - halfDepth);
+    glVertex3f(x + halfWidth, 0.0f, z - halfDepth);
+
+    glVertex3f(x - halfWidth, height + buildingOffset, z - halfDepth);
+    glVertex3f(x + halfWidth, height + buildingOffset, z - halfDepth);
+
+    // Connect front to back - top edges
+    glVertex3f(x - halfWidth, height + buildingOffset, z + halfDepth);
+    glVertex3f(x - halfWidth, height + buildingOffset, z - halfDepth);
+
+    glVertex3f(x + halfWidth, height + buildingOffset, z + halfDepth);
+    glVertex3f(x + halfWidth, height + buildingOffset, z - halfDepth);
     glEnd();
 
-    // Front right edge
-    glBegin(GL_QUADS);
-    glVertex3f(x + halfWidth - edgeWidth/2, 0.0f, z + halfDepth + edgeWidth/2);
-    glVertex3f(x + halfWidth + edgeWidth/2, 0.0f, z + halfDepth + edgeWidth/2);
-    glVertex3f(x + halfWidth + edgeWidth/2, height + buildingOffset, z + halfDepth + edgeWidth/2);
-    glVertex3f(x + halfWidth - edgeWidth/2, height + buildingOffset, z + halfDepth + edgeWidth/2);
+    // Add outline glow for buildings
+    glLineWidth(5.0f);
+    glColor4f(1.0f, 0.1f, 0.8f, 0.25f);  // Pink glow
+
+    // Redraw front edges with glow
+    glBegin(GL_LINES);
+    // Left vertical edge
+    glVertex3f(x - halfWidth, 0.0f, z + halfDepth);
+    glVertex3f(x - halfWidth, height + buildingOffset, z + halfDepth);
+
+    // Right vertical edge
+    glVertex3f(x + halfWidth, 0.0f, z + halfDepth);
+    glVertex3f(x + halfWidth, height + buildingOffset, z + halfDepth);
+
+    // Top horizontal edge
+    glVertex3f(x - halfWidth, height + buildingOffset, z + halfDepth);
+    glVertex3f(x + halfWidth, height + buildingOffset, z + halfDepth);
     glEnd();
+    glLineWidth(3.0f);
 
-    // Top edge glow
-    glBegin(GL_QUADS);
-    glVertex3f(x - halfWidth - edgeWidth/2, height + buildingOffset - edgeWidth/2, z - halfDepth - edgeWidth/2);
-    glVertex3f(x + halfWidth + edgeWidth/2, height + buildingOffset - edgeWidth/2, z - halfDepth - edgeWidth/2);
-    glVertex3f(x + halfWidth + edgeWidth/2, height + buildingOffset + edgeWidth/2, z - halfDepth - edgeWidth/2);
-    glVertex3f(x - halfWidth - edgeWidth/2, height + buildingOffset + edgeWidth/2, z - halfDepth - edgeWidth/2);
-    glEnd();
+    // Draw windows - improved symmetrical version
+    // Calculate perfect grid for windows
+    int numFloors = static_cast<int>(height / 2.5f);
+    int windowsPerFloor = static_cast<int>(width / 1.2f);
 
-    // ENHANCEMENT: Add more detailed rooftop structures
-    // Add a rooftop detail - more complex antenna array
-    glColor4f(0.6f, 0.0f, 0.5f, 1.0f); // Dark pink
+    // Ensure minimum number of windows
+    numFloors = std::max(numFloors, 3);
+    windowsPerFloor = std::max(windowsPerFloor, 2);
 
-    // Main antenna
-    glBegin(GL_QUADS);
-    glVertex3f(x - 0.2f, height + buildingOffset, z - 0.2f);
-    glVertex3f(x + 0.2f, height + buildingOffset, z - 0.2f);
-    glVertex3f(x + 0.2f, height + 5.0f + buildingOffset, z - 0.2f);
-    glVertex3f(x - 0.2f, height + 5.0f + buildingOffset, z - 0.2f);
+    // Window properties
+    float windowWidth = width / (windowsPerFloor + 1);
+    float windowHeight = windowWidth * 1.5f; // Rectangular windows
+    float floorHeight = (height - 2.0f) / numFloors;
 
-    glVertex3f(x - 0.2f, height + buildingOffset, z + 0.2f);
-    glVertex3f(x + 0.2f, height + buildingOffset, z + 0.2f);
-    glVertex3f(x + 0.2f, height + 5.0f + buildingOffset, z + 0.2f);
-    glVertex3f(x - 0.2f, height + 5.0f + buildingOffset, z + 0.2f);
-
-    glVertex3f(x - 0.2f, height + buildingOffset, z - 0.2f);
-    glVertex3f(x - 0.2f, height + buildingOffset, z + 0.2f);
-    glVertex3f(x - 0.2f, height + 5.0f + buildingOffset, z + 0.2f);
-    glVertex3f(x - 0.2f, height + 5.0f + buildingOffset, z - 0.2f);
-
-    glVertex3f(x + 0.2f, height + buildingOffset, z - 0.2f);
-    glVertex3f(x + 0.2f, height + buildingOffset, z + 0.2f);
-    glVertex3f(x + 0.2f, height + 5.0f + buildingOffset, z + 0.2f);
-    glVertex3f(x + 0.2f, height + 5.0f + buildingOffset, z - 0.2f);
-    glEnd();
-
-    // Antenna cross bars
-    glBegin(GL_QUADS);
-    glVertex3f(x - 1.0f, height + 4.0f + buildingOffset, z - 0.1f);
-    glVertex3f(x + 1.0f, height + 4.0f + buildingOffset, z - 0.1f);
-    glVertex3f(x + 1.0f, height + 4.2f + buildingOffset, z - 0.1f);
-    glVertex3f(x - 1.0f, height + 4.2f + buildingOffset, z - 0.1f);
-
-    glVertex3f(x - 1.0f, height + 3.0f + buildingOffset, z - 0.1f);
-    glVertex3f(x + 1.0f, height + 3.0f + buildingOffset, z - 0.1f);
-    glVertex3f(x + 1.0f, height + 3.2f + buildingOffset, z - 0.1f);
-    glVertex3f(x - 1.0f, height + 3.2f + buildingOffset, z - 0.1f);
-    glEnd();
-
-    // Rooftop blinking light
-    float blinkIntensity = (sin(time * 5.0f) > 0) ? 1.0f : 0.0f; // Blink on/off
-    glColor4f(1.0f, 0.2f, 0.2f, 0.8f * blinkIntensity); // Red blink
-    glPointSize(5.0f);
-    glBegin(GL_POINTS);
-    glVertex3f(x, height + 5.1f + buildingOffset, z);
-    glEnd();
-
-    // ENHANCEMENT: Improved windows with more variety and better glow
-   // Enhanced window rendering code - replace the window drawing section in drawBuilding function
-
-// ENHANCEMENT: Improved windows with sharper edges and more clarity
-// ENHANCEMENT: Improved windows with sharper edges and more clarity
-if (drawWindows) {
-    // Enable blending for window glow but with improved blend function
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // For sharper base windows
-
-    // Base intensity with pulsating effect
     float windowPulse = 0.7f + 0.3f * sinf(time * 1.5f);
+    float globalWindowIntensity = 0.6f + 0.4f * sinf(time * 0.3f); // Stronger building pulse
 
-    // Random seed based on building position for consistent window patterns
-    srand(static_cast<unsigned int>((x + z) * 1000.0f));
+    // Set window colors - use only classic retrowave colors
+    const int numColors = 3;
+    float colors[numColors][3] = {
+        {0.0f, 0.9f, 1.0f},  // Brighter Cyan/Teal
+        {1.0f, 0.8f, 0.0f},  // Golden/Orange
+        {1.0f, 0.3f, 0.7f}   // Hot Pink/Magenta
+    };
 
-    int numWindowsHorizontal = static_cast<int>(width * 2) + 2;
-    int numWindowsVertical = static_cast<int>(height) / 2;
+    // Determine color palette for this building based on its position
+    int buildingColorScheme = static_cast<int>(fabs(x * 1000)) % numColors;
 
-    // Front face windows with improved visuals
-    for (int i = 0; i < numWindowsVertical; i++) {
-        for (int j = 0; j < numWindowsHorizontal; j++) {
-            // Some randomness to window presence
-            if (rand() % 4 == 0) continue; // 25% chance of no window
+    // Draw windows on front face only, in perfect grid
+    for (int floor = 0; floor < numFloors; floor++) {
+        float floorY = 2.0f + floor * floorHeight;
 
-            float windowY = 2.0f + i * 2.0f;
-            if (windowY >= height) continue;
+        for (int w = 0; w < windowsPerFloor; w++) {
+            // Calculate window position
+            float windowX = x - halfWidth + (width / (windowsPerFloor + 1)) * (w + 1);
+            float windowY = floorY + floorHeight * 0.5f;
 
-            float windowX = x - halfWidth + j * (width / (numWindowsHorizontal - 1));
-            if (windowX > x + halfWidth) continue;
+            // Skip some windows randomly but consistently for this building (based on position)
+            int hash = static_cast<int>((windowX * 100 + windowY * 50 + x * z * 10) * 10) % 10;
+            if (hash < 3 && floor > 0) continue; // 30% chance of missing window except on first floor
 
-            // Create window frame first (black border for definition)
-            float windowSize = 0.5f + static_cast<float>(rand() % 4) * 0.1f; // Larger base size
-            float frameBorder = 0.05f; // Border thickness
-
-            // Draw black window frame
+            // Draw window outline (black)
             glColor4f(0.0f, 0.0f, 0.0f, 0.9f);
             glBegin(GL_QUADS);
-            glVertex3f(windowX - windowSize/2, windowY - windowSize/2, z + halfDepth + 0.005f);
-            glVertex3f(windowX + windowSize/2, windowY - windowSize/2, z + halfDepth + 0.005f);
-            glVertex3f(windowX + windowSize/2, windowY + windowSize/2, z + halfDepth + 0.005f);
-            glVertex3f(windowX - windowSize/2, windowY + windowSize/2, z + halfDepth + 0.005f);
+            glVertex3f(windowX - windowWidth/2, windowY - windowHeight/2, z + halfDepth + 0.01f);
+            glVertex3f(windowX + windowWidth/2, windowY - windowHeight/2, z + halfDepth + 0.01f);
+            glVertex3f(windowX + windowWidth/2, windowY + windowHeight/2, z + halfDepth + 0.01f);
+            glVertex3f(windowX - windowWidth/2, windowY + windowHeight/2, z + halfDepth + 0.01f);
             glEnd();
 
-            // Various window types with different colors and behaviors
-            int windowType = rand() % 10;
+            // Determine window color - vary by floor for a pattern
+            int colorIndex = (buildingColorScheme + floor) % numColors;
 
-            // Draw the inner illuminated part (slightly smaller than frame)
-            if (windowType < 5) {
-                // Standard blue windows with enhanced glow
-                float blueIntensity = windowPulse * (0.8f + 0.2f * sinf(time * 3.0f + i * j * 0.1f));
-                glColor4f(0.0f, 0.7f * blueIntensity, 1.0f * blueIntensity, 0.95f); // More opacity
-            }
-            else if (windowType < 8) {
-                // Yellow/white windows (apartment lights)
-                float yellowIntensity = 0.5f + 0.5f * sinf(time * 2.0f + i * 0.1f + j * 0.2f);
-                glColor4f(1.0f * yellowIntensity, 0.9f * yellowIntensity, 0.5f * yellowIntensity, 0.95f);
-            }
-            else if (windowType == 8) {
-                // Flickering red windows (alarm/warning)
-                float redFlicker = (sin(time * 15.0f) > 0) ? 1.0f : 0.2f;
-                glColor4f(1.0f * redFlicker, 0.1f * redFlicker, 0.1f * redFlicker, 0.95f);
-            }
-            else {
-                // Purple/magenta windows
-                glColor4f(1.0f * windowPulse, 0.0f, 0.8f * windowPulse, 0.95f);
+            // Create lighting pattern across the building (brightest in middle)
+            float centerFactor = 1.0f - 2.0f * fabs((w + 0.5f) / windowsPerFloor - 0.5f); // 0-1-0 across building
+            float heightFactor = 1.0f - (float)floor / numFloors * 0.3f; // brighter at bottom
+
+            // Window light intensity
+            float blink = 1.0f;
+            if (hash == 8) { // 10% chance of blinking window
+                blink = (sin(time * (5.0f + hash)) > 0) ? 1.0f : 0.3f;
             }
 
-            // Draw window inner (slightly smaller than frame)
-            glBegin(GL_QUADS);
-            glVertex3f(windowX - windowSize/2 + frameBorder, windowY - windowSize/2 + frameBorder, z + halfDepth + 0.01f);
-            glVertex3f(windowX + windowSize/2 - frameBorder, windowY - windowSize/2 + frameBorder, z + halfDepth + 0.01f);
-            glVertex3f(windowX + windowSize/2 - frameBorder, windowY + windowSize/2 - frameBorder, z + halfDepth + 0.01f);
-            glVertex3f(windowX - windowSize/2 + frameBorder, windowY + windowSize/2 - frameBorder, z + halfDepth + 0.01f);
-            glEnd();
+            float intensity = windowPulse * globalWindowIntensity * centerFactor * heightFactor * blink;
 
-            // Window division lines (for realism)
-            if (windowSize > 0.6f) {  // Only for larger windows
-                glColor4f(0.0f, 0.0f, 0.0f, 0.9f);
-                glLineWidth(2.0f);  // Thicker lines for visibility
-
-                glBegin(GL_LINES);
-                // Horizontal divider
-                glVertex3f(windowX - windowSize/2 + frameBorder, windowY, z + halfDepth + 0.011f);
-                glVertex3f(windowX + windowSize/2 - frameBorder, windowY, z + halfDepth + 0.011f);
-
-                // Vertical divider
-                glVertex3f(windowX, windowY - windowSize/2 + frameBorder, z + halfDepth + 0.011f);
-                glVertex3f(windowX, windowY + windowSize/2 - frameBorder, z + halfDepth + 0.011f);
-                glEnd();
-            }
-
-            // Now switch blend mode for the glow effect
+            // Set window color and draw
             glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            glColor4f(
+                colors[colorIndex][0] * intensity,
+                colors[colorIndex][1] * intensity,
+                colors[colorIndex][2] * intensity,
+                0.95f
+            );
 
-            // Add enhanced window glow with clearer definition
-            float glowIntensity = windowPulse * 0.6f;
+            // Margin inside window
+            float margin = windowWidth * 0.15f;
 
-            // Store glow color components in separate variables
-            float r, g, b;
-            if (windowType < 5) { // Blue windows
-                r = 0.0f; g = 0.5f; b = 1.0f;
-            }
-            else if (windowType < 8) { // Yellow windows
-                r = 1.0f; g = 0.9f; b = 0.3f;
-            }
-            else if (windowType == 8) { // Red windows
-                r = 1.0f; g = 0.1f; b = 0.1f;
-                glowIntensity = glowIntensity * ((sin(time * 15.0f) > 0) ? 1.0f : 0.2f);
-            }
-            else { // Purple windows
-                r = 1.0f; g = 0.0f; b = 0.8f;
-            }
+            // Draw window inner
+            glBegin(GL_QUADS);
+            glVertex3f(windowX - windowWidth/2 + margin, windowY - windowHeight/2 + margin, z + halfDepth + 0.02f);
+            glVertex3f(windowX + windowWidth/2 - margin, windowY - windowHeight/2 + margin, z + halfDepth + 0.02f);
+            glVertex3f(windowX + windowWidth/2 - margin, windowY + windowHeight/2 - margin, z + halfDepth + 0.02f);
+            glVertex3f(windowX - windowWidth/2 + margin, windowY + windowHeight/2 - margin, z + halfDepth + 0.02f);
+            glEnd();
 
-            // Draw glow with fading gradient (using multiple quads with decreasing opacity)
-            for (int g = 0; g < 3; g++) {
-                float gScale = 1.0f + g * 0.5f;  // Increase size for each layer
-                float gAlpha = glowIntensity * (1.0f - g * 0.3f);  // Decrease alpha for outer layers
+            // Add window glow
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            float glowIntensity = intensity * 0.6f;
 
-                glColor4f(r, g, b, gAlpha);
-                glBegin(GL_QUADS);
-                glVertex3f(windowX - (windowSize * gScale)/2, windowY - (windowSize * gScale)/2, z + halfDepth + 0.012f);
-                glVertex3f(windowX + (windowSize * gScale)/2, windowY - (windowSize * gScale)/2, z + halfDepth + 0.012f);
-                glVertex3f(windowX + (windowSize * gScale)/2, windowY + (windowSize * gScale)/2, z + halfDepth + 0.012f);
-                glVertex3f(windowX - (windowSize * gScale)/2, windowY + (windowSize * gScale)/2, z + halfDepth + 0.012f);
-                glEnd();
-            }
+            // Stronger glow
+            glColor4f(
+                colors[colorIndex][0],
+                colors[colorIndex][1],
+                colors[colorIndex][2],
+                glowIntensity
+            );
+
+            // Draw simple glow around window
+            float glowSize = windowWidth * 2.0f;  // Larger glow
+            glBegin(GL_QUADS);
+            glVertex3f(windowX - glowSize/2, windowY - glowSize/2, z + halfDepth + 0.015f);
+            glVertex3f(windowX + glowSize/2, windowY - glowSize/2, z + halfDepth + 0.015f);
+            glVertex3f(windowX + glowSize/2, windowY + glowSize/2, z + halfDepth + 0.015f);
+            glVertex3f(windowX - glowSize/2, windowY + glowSize/2, z + halfDepth + 0.015f);
+            glEnd();
         }
     }
 
-    // Side windows with same improved visuals
-    if (depth > 2.0f) {
-        for (int i = 0; i < numWindowsVertical; i += 2) {
-            for (int j = 0; j < 3; j++) {
-                if (rand() % 3 == 0) continue;
-
-                float windowY = 2.0f + i * 2.0f;
-                if (windowY >= height) continue;
-
-                float windowZ = z - halfDepth + j * (depth / 2.0f);
-                float windowSize = 0.5f + static_cast<float>(rand() % 3) * 0.1f;
-                float frameBorder = 0.05f;
-
-                int windowType = rand() % 10;
-
-                // Right side windows
-                // Draw window frame first (black border)
-                glColor4f(0.0f, 0.0f, 0.0f, 0.9f);
-                glBegin(GL_QUADS);
-                glVertex3f(x + halfWidth + 0.005f, windowY - windowSize/2, windowZ - windowSize/2);
-                glVertex3f(x + halfWidth + 0.005f, windowY - windowSize/2, windowZ + windowSize/2);
-                glVertex3f(x + halfWidth + 0.005f, windowY + windowSize/2, windowZ + windowSize/2);
-                glVertex3f(x + halfWidth + 0.005f, windowY + windowSize/2, windowZ - windowSize/2);
-                glEnd();
-
-                // Draw window inner with appropriate color
-                if (windowType < 5) {
-                    float blueIntensity = windowPulse * (0.8f + 0.2f * sinf(time * 3.0f + i * j * 0.1f));
-                    glColor4f(0.0f, 0.7f * blueIntensity, 1.0f * blueIntensity, 0.95f);
-                }
-                else if (windowType < 8) {
-                    float yellowIntensity = 0.5f + 0.5f * sinf(time * 2.0f + i * 0.1f + j * 0.2f);
-                    glColor4f(1.0f * yellowIntensity, 0.9f * yellowIntensity, 0.5f * yellowIntensity, 0.95f);
-                }
-                else if (windowType == 8) {
-                    float redFlicker = (sin(time * 15.0f) > 0) ? 1.0f : 0.2f;
-                    glColor4f(1.0f * redFlicker, 0.1f * redFlicker, 0.1f * redFlicker, 0.95f);
-                }
-                else {
-                    glColor4f(1.0f * windowPulse, 0.0f, 0.8f * windowPulse, 0.95f);
-                }
-
-                glBegin(GL_QUADS);
-                glVertex3f(x + halfWidth + 0.01f, windowY - windowSize/2 + frameBorder, windowZ - windowSize/2 + frameBorder);
-                glVertex3f(x + halfWidth + 0.01f, windowY - windowSize/2 + frameBorder, windowZ + windowSize/2 - frameBorder);
-                glVertex3f(x + halfWidth + 0.01f, windowY + windowSize/2 - frameBorder, windowZ + windowSize/2 - frameBorder);
-                glVertex3f(x + halfWidth + 0.01f, windowY + windowSize/2 - frameBorder, windowZ - windowSize/2 + frameBorder);
-                glEnd();
-
-                // Left side windows (same approach)
-                glColor4f(0.0f, 0.0f, 0.0f, 0.9f);
-                glBegin(GL_QUADS);
-                glVertex3f(x - halfWidth - 0.005f, windowY - windowSize/2, windowZ - windowSize/2);
-                glVertex3f(x - halfWidth - 0.005f, windowY - windowSize/2, windowZ + windowSize/2);
-                glVertex3f(x - halfWidth - 0.005f, windowY + windowSize/2, windowZ + windowSize/2);
-                glVertex3f(x - halfWidth - 0.005f, windowY + windowSize/2, windowZ - windowSize/2);
-                glEnd();
-
-                // Draw window inner with appropriate color (same as right side)
-                if (windowType < 5) {
-                    float blueIntensity = windowPulse * (0.8f + 0.2f * sinf(time * 3.0f + i * j * 0.1f));
-                    glColor4f(0.0f, 0.7f * blueIntensity, 1.0f * blueIntensity, 0.95f);
-                }
-                else if (windowType < 8) {
-                    float yellowIntensity = 0.5f + 0.5f * sinf(time * 2.0f + i * 0.1f + j * 0.2f);
-                    glColor4f(1.0f * yellowIntensity, 0.9f * yellowIntensity, 0.5f * yellowIntensity, 0.95f);
-                }
-                else if (windowType == 8) {
-                    float redFlicker = (sin(time * 15.0f) > 0) ? 1.0f : 0.2f;
-                    glColor4f(1.0f * redFlicker, 0.1f * redFlicker, 0.1f * redFlicker, 0.95f);
-                }
-                else {
-                    glColor4f(1.0f * windowPulse, 0.0f, 0.8f * windowPulse, 0.95f);
-                }
-
-                glBegin(GL_QUADS);
-                glVertex3f(x - halfWidth - 0.01f, windowY - windowSize/2 + frameBorder, windowZ - windowSize/2 + frameBorder);
-                glVertex3f(x - halfWidth - 0.01f, windowY - windowSize/2 + frameBorder, windowZ + windowSize/2 - frameBorder);
-                glVertex3f(x - halfWidth - 0.01f, windowY + windowSize/2 - frameBorder, windowZ + windowSize/2 - frameBorder);
-                glVertex3f(x - halfWidth - 0.01f, windowY + windowSize/2 - frameBorder, windowZ - windowSize/2 + frameBorder);
-                glEnd();
-            }
-        }
-    }
-
+    glLineWidth(1.0f);
     glDisable(GL_BLEND);
-}
 }
 
 void drawGrid(float size, int divisions) {
@@ -859,167 +679,242 @@ void drawGrid(float size, int divisions) {
     float startY = 0.0f;
     float time = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
 
-    // Draw the grid surface with a subtle glow
+    // Enable blending for grid glow
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 
-    glColor4f(0.05f, 0.0f, 0.1f, 0.7f); // Dark purple with alpha
-    glBegin(GL_QUADS);
-    glVertex3f(-halfSize, startY - 0.01f, -halfSize);
-    glVertex3f(halfSize, startY - 0.01f, -halfSize);
-    glVertex3f(halfSize, startY - 0.01f, halfSize);
-    glVertex3f(-halfSize, startY - 0.01f, halfSize);
-    glEnd();
-
-    // Apply grid offset for animation with some acceleration/deceleration
+    // Animation offset with smooth movement
     float offsetZ = fmodf(gridOffset * step, step);
-
-    // Variable speed grid - speeds up and slows down
     float speedFactor = 1.0f + 0.5f * sinf(time * 0.3f);
     offsetZ *= speedFactor;
 
-    // Draw grid lines along Z axis (pink)
+    // Draw grid lines along Z axis (pink/magenta)
     for (int i = 0; i <= divisions; i++) {
         float x = -halfSize + i * step;
-        float thickness = 0.1f;
+        float brightness = 1.0f - fabsf(x) / halfSize; // Fade out at edges
 
-        if (i % 5 == 0) {
-            thickness = 0.3f; // Make every 5th line thicker
-            glColor4f(0.9f, 0.2f, 0.8f, 0.9f); // Solid pink for major lines
-        } else {
-            // Pulsating effect for minor lines
-            float pulse = 0.5f + 0.5f * sinf(time * 2.0f + i * 0.1f);
-            glColor4f(0.9f, 0.2f, 0.8f, 0.5f + 0.3f * pulse);
-        }
+        // Skip some lines for a cleaner look
+        if (i % 2 != 0 && abs(i - divisions/2) > 5) continue;
 
-        glBegin(GL_QUADS);
-        glVertex3f(x - thickness/2, startY, -halfSize + offsetZ);
-        glVertex3f(x + thickness/2, startY, -halfSize + offsetZ);
-        glVertex3f(x + thickness/2, startY, halfSize + offsetZ);
-        glVertex3f(x - thickness/2, startY, halfSize + offsetZ);
+        // Adjust color for neon effect - more vibrant magenta
+        float pulse = 0.7f + 0.3f * sinf(time * 2.0f + i * 0.1f);
+        float alpha = 0.4f + 0.6f * brightness * pulse;
+        glColor4f(1.0f, 0.1f, 0.8f, alpha);  // Brighter magenta
+
+        // Draw thicker line
+        glLineWidth(2.5f);
+        glBegin(GL_LINES);
+        glVertex3f(x, startY, -halfSize + offsetZ);
+        glVertex3f(x, startY, halfSize + offsetZ);
         glEnd();
-
-        // Add vertical "light beams" on major grid lines
-        if (i % 5 == 0 && i % 10 != 0) { // Only on some major lines
-            float beamHeight = 10.0f + 5.0f * sinf(time + i);
-            float beamAlpha = 0.2f + 0.1f * sinf(time * 2.0f + i);
-
-            glColor4f(0.9f, 0.2f, 0.8f, beamAlpha); // Pink with alpha
-
-            glBegin(GL_QUADS);
-            glVertex3f(x - thickness, startY, -halfSize + i * step + offsetZ);
-            glVertex3f(x + thickness, startY, -halfSize + i * step + offsetZ);
-            glVertex3f(x + thickness/3, beamHeight, -halfSize + i * step + offsetZ);
-            glVertex3f(x - thickness/3, beamHeight, -halfSize + i * step + offsetZ);
-            glEnd();
-        }
     }
 
-    // Draw grid lines along X axis (blue) with enhanced effects
+    // Draw grid lines along X axis (cyan/blue)
     for (int i = 0; i <= divisions; i++) {
         float z = -halfSize + i * step + offsetZ;
         if (z > halfSize) continue;
 
-        float thickness = 0.1f;
-        if (i % 5 == 0) {
-            thickness = 0.3f; // Make every 5th line thicker
-            glColor4f(0.0f, 0.7f, 1.0f, 0.9f); // Solid blue for major lines
-        } else {
-            // Pulsating effect with phase shift
-            float pulse = 0.5f + 0.5f * sinf(time * 2.0f + i * 0.1f + 1.5f); // Phase shifted from pink
-            glColor4f(0.0f, 0.7f, 1.0f, 0.5f + 0.3f * pulse);
-        }
+        float brightness = 1.0f - fabsf(z) / halfSize; // Fade out at distance
 
-        glBegin(GL_QUADS);
-        glVertex3f(-halfSize, startY, z - thickness/2);
-        glVertex3f(halfSize, startY, z - thickness/2);
-        glVertex3f(halfSize, startY, z + thickness/2);
-        glVertex3f(-halfSize, startY, z + thickness/2);
+        // Skip some lines for a cleaner look
+        if (i % 2 != 0 && i > 5) continue;
+
+        float pulse = 0.7f + 0.3f * sinf(time * 2.0f + i * 0.1f + 1.5f);
+        float alpha = 0.4f + 0.6f * brightness * pulse;
+        glColor4f(0.0f, 0.8f, 1.0f, alpha);  // Brighter cyan
+
+        // Draw thicker line
+        glLineWidth(2.5f);
+        glBegin(GL_LINES);
+        glVertex3f(-halfSize, startY, z);
+        glVertex3f(halfSize, startY, z);
         glEnd();
     }
 
-    // Add "data transfer" pulses moving along the grid lines
-    int numPulses = 5;
-    for (int i = 0; i < numPulses; i++) {
-        // Calculate pulse position (moves from back to front)
-        float pulsePhase = fmodf(time * 0.5f + i * 0.2f, 1.0f);
-        float pulseZ = -halfSize + pulsePhase * size;
-
-        // Pulse size and alpha (gets smaller as it approaches viewer)
-        float pulseSize = 1.0f - pulsePhase * 0.7f;
-        float pulseAlpha = 0.7f - pulsePhase * 0.5f;
-
-        // Alternate between blue and pink pulses
-        if (i % 2 == 0) {
-            glColor4f(0.0f, 0.7f, 1.0f, pulseAlpha); // Blue
-        } else {
-            glColor4f(0.9f, 0.2f, 0.8f, pulseAlpha); // Pink
-        }
-
-        // Draw pulses at intersections of major grid lines
-        for (int j = -4; j <= 4; j += 2) {
-            float pulseX = j * (size / 10.0f); // Position on major grid lines
-
-            glBegin(GL_QUADS);
-            glVertex3f(pulseX - pulseSize, startY + 0.1f, pulseZ - pulseSize);
-            glVertex3f(pulseX + pulseSize, startY + 0.1f, pulseZ - pulseSize);
-            glVertex3f(pulseX + pulseSize, startY + 0.1f, pulseZ + pulseSize);
-            glVertex3f(pulseX - pulseSize, startY + 0.1f, pulseZ + pulseSize);
-            glEnd();
-        }
-    }
-
     glDisable(GL_BLEND);
+    glLineWidth(1.0f);
 }
 
-void drawVortex(float radius, int segments, int rings) {
-    float ringStep = radius / rings;
+void drawSpinners() {
     float time = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
 
-    // Move vortex to the left above buildings
+    // Draw each spinner
+    for (size_t i = 0; i < spinners.size(); i++) {
+        drawSpinner(spinners[i], time);
+    }
+}
+
+void drawSpinner(const Spinner& spinner, float time) {
     glPushMatrix();
-    glTranslatef(-20.0f, 20.0f, -50.0f); // Left above buildings
-    glRotatef(vortexAngle, 0.0f, 1.0f, 0.0f);
+    glTranslatef(spinner.x, spinner.y, spinner.z);
+    glRotatef(spinner.rotation, 0.0f, 0.0f, 1.0f);
 
-    for (int r = 0; r < rings; r++) {
-        float innerRadius = r * ringStep;
-        float outerRadius = (r + 1) * ringStep;
-        float heightFactor = 0.5f + 0.2f * sinf(time * 2.0f + r * 0.5f);
-        float heightInner = r * heightFactor;
-        float heightOuter = (r + 1) * heightFactor;
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 
+    float pulse = 0.7f + 0.3f * sinf(time * 2.0f);
+    int segments = 24;
+    float radius = spinner.radius;
+
+    if (spinner.type == 0) {  // Circular spinner
+        // Draw a circular spinner
+        glLineWidth(2.0f);
+        glBegin(GL_LINE_LOOP);
         for (int i = 0; i < segments; i++) {
-            float angle1 = static_cast<float>(i) / segments * 2.0f * M_PI;
-            float angle2 = static_cast<float>(i + 1) / segments * 2.0f * M_PI;
+            float angle = static_cast<float>(i) / segments * 2.0f * M_PI;
 
-            float x1Inner = innerRadius * cosf(angle1);
-            float z1Inner = innerRadius * sinf(angle1);
-            float x2Inner = innerRadius * cosf(angle2);
-            float z2Inner = innerRadius * sinf(angle2);
-
-            float x1Outer = outerRadius * cosf(angle1);
-            float z1Outer = outerRadius * sinf(angle1);
-            float x2Outer = outerRadius * cosf(angle2);
-            float z2Outer = outerRadius * sinf(angle2);
-
-            // Alternate between pink and blue for the vortex rings
-            float pulse = 0.7f + 0.3f * sinf(time * 3.0f + r * 0.5f + i * 0.1f);
-
-            if (i % 2 == 0) {
-                glColor4f(0.9f * pulse, 0.2f * pulse, 0.8f * pulse, 0.8f); // Pulsating pink
+            if (spinner.isPink) {
+                glColor4f(0.9f * pulse, 0.2f * pulse, 0.8f * pulse, 0.8f); // Pink
             } else {
-                glColor4f(0.0f, 0.7f * pulse, 1.0f * pulse, 0.8f); // Pulsating blue
+                glColor4f(0.0f, 0.7f * pulse, 1.0f * pulse, 0.8f); // Blue
             }
 
-            glBegin(GL_QUADS);
-            glVertex3f(x1Inner, heightInner, z1Inner);
-            glVertex3f(x1Outer, heightOuter, z1Outer);
-            glVertex3f(x2Outer, heightOuter, z2Outer);
-            glVertex3f(x2Inner, heightInner, z2Inner);
+            float x = radius * cosf(angle);
+            float y = radius * sinf(angle);
+            glVertex3f(x, y, 0.0f);
+        }
+        glEnd();
+
+        // Draw spokes
+        glBegin(GL_LINES);
+        for (int i = 0; i < segments/4; i++) {
+            float angle = static_cast<float>(i) / (segments/4) * 2.0f * M_PI;
+
+            if (spinner.isPink) {
+                glColor4f(0.9f * pulse, 0.2f * pulse, 0.8f * pulse, 0.5f); // Pink
+            } else {
+                glColor4f(0.0f, 0.7f * pulse, 1.0f * pulse, 0.5f); // Blue
+            }
+
+            glVertex3f(0.0f, 0.0f, 0.0f);
+            glVertex3f(radius * cosf(angle), radius * sinf(angle), 0.0f);
+        }
+        glEnd();
+
+    } else {  // Spiral spinner
+        // Draw a spiral spinner
+        int rings = 5;
+        float ringStep = radius / rings;
+
+        for (int r = 0; r < rings; r++) {
+            float innerRadius = r * ringStep;
+            float outerRadius = (r + 1) * ringStep;
+
+            // Make the spiral
+            glBegin(GL_LINE_STRIP);
+            for (int i = 0; i <= segments; i++) {
+                float angle = static_cast<float>(i) / segments * 2.0f * M_PI;
+
+                // Alternate colors along the spiral
+                if ((r + i) % 2 == 0) {
+                    glColor4f(0.9f * pulse, 0.2f * pulse, 0.8f * pulse, 0.8f); // Pink
+                } else {
+                    glColor4f(0.0f, 0.7f * pulse, 1.0f * pulse, 0.8f); // Blue
+                }
+
+                float radius = innerRadius + (outerRadius - innerRadius) * i / segments;
+                float x = radius * cosf(angle);
+                float y = radius * sinf(angle);
+                glVertex3f(x, y, 0.0f);
+            }
             glEnd();
         }
+
+        // Draw a circular outline
+        glBegin(GL_LINE_LOOP);
+        for (int i = 0; i < segments; i++) {
+            float angle = static_cast<float>(i) / segments * 2.0f * M_PI;
+
+            if (i % 2 == 0) {
+                glColor4f(0.9f * pulse, 0.2f * pulse, 0.8f * pulse, 0.8f); // Pink
+            } else {
+                glColor4f(0.0f, 0.7f * pulse, 1.0f * pulse, 0.8f); // Blue
+            }
+
+            float x = radius * cosf(angle);
+            float y = radius * sinf(angle);
+            glVertex3f(x, y, 0.0f);
+        }
+        glEnd();
     }
 
+    glLineWidth(1.0f);
+    glDisable(GL_BLEND);
+    glPopMatrix();
+}
+
+void drawTunnel(float radius, int segments, int rings) {
+    float time = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
+
+    // Position the tunnel in the sky
+    glPushMatrix();
+    glTranslatef(0.0f, 35.0f, -70.0f);
+
+    // Rotate for better visibility
+    glRotatef(15.0f, 1.0f, 0.0f, 0.0f);
+
+    // Spin the tunnel
+    glRotatef(vortexAngle * 0.2f, 0.0f, 0.0f, 1.0f);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+    // Draw tunnel grid lines
+    glLineWidth(2.0f);
+
+    // Draw radial lines
+    for (int i = 0; i < segments; i++) {
+        float angle = static_cast<float>(i) / segments * 2.0f * M_PI;
+        float x = radius * cosf(angle);
+        float y = radius * sinf(angle);
+
+        // Pink for odd radials, blue for even
+        if (i % 2 == 0) {
+            glColor4f(0.9f, 0.2f, 0.8f, 0.8f);
+        } else {
+            glColor4f(0.0f, 0.7f, 1.0f, 0.8f);
+        }
+
+        glBegin(GL_LINE_STRIP);
+        for (int r = 0; r < rings; r++) {
+            float depth = -30.0f + r * 2.0f + tunnelDepth;
+            float scaleFactor = (1.0f - r / (float)rings) * 0.9f + 0.1f;
+
+            // Create a perspective effect
+            float currX = x * scaleFactor;
+            float currY = y * scaleFactor;
+
+            glVertex3f(currX, currY, depth);
+        }
+        glEnd();
+    }
+
+    // Draw concentric rings
+    for (int r = 0; r < rings; r++) {
+        float depth = -30.0f + r * 2.0f + tunnelDepth;
+        float scaleFactor = (1.0f - r / (float)rings) * 0.9f + 0.1f;
+
+        // Alternate between pink and blue rings
+        if (r % 2 == 0) {
+            float pulse = 0.7f + 0.3f * sinf(time * 2.0f + r * 0.3f);
+            glColor4f(0.9f * pulse, 0.2f * pulse, 0.8f * pulse, 0.7f - (float)r/rings * 0.5f);
+        } else {
+            float pulse = 0.7f + 0.3f * sinf(time * 2.0f + r * 0.3f + M_PI);
+            glColor4f(0.0f, 0.7f * pulse, 1.0f * pulse, 0.7f - (float)r/rings * 0.5f);
+        }
+
+        glBegin(GL_LINE_LOOP);
+        for (int i = 0; i < segments; i++) {
+            float angle = static_cast<float>(i) / segments * 2.0f * M_PI;
+            float currX = radius * scaleFactor * cosf(angle);
+            float currY = radius * scaleFactor * sinf(angle);
+            glVertex3f(currX, currY, depth);
+        }
+        glEnd();
+    }
+
+    glLineWidth(1.0f);
+    glDisable(GL_BLEND);
     glPopMatrix();
 }
 
@@ -1028,501 +923,212 @@ void drawCar(const Car& car) {
     float z = car.z;
     float carLength = 4.0f;
     float carWidth = 2.0f;
-    float carHeight = 1.5f;
+    float carHeight = 1.2f;
 
-    // Add bobbing animation to cars
+    // Add bobbing animation
     float time = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
     float verticalOffset = sinf(time * 4.0f + x) * 0.1f;
 
-    // Choose car color with pulsating effect
-    float pulseIntensity = 0.15f * sinf(time * 3.0f) + 0.85f;
+    // Car color with pulse
+    float pulseIntensity = 0.2f * sinf(time * 3.0f) + 0.8f;
 
-    if (car.isBlue) {
-        glColor3f(0.0f, 0.7f * pulseIntensity, 1.0f * pulseIntensity); // Blue with pulse
-    } else {
-        glColor3f(0.9f * pulseIntensity, 0.2f * pulseIntensity, 0.8f * pulseIntensity); // Pink with pulse
-    }
-
-    // Car body - using a display list would be more efficient but we'll do direct rendering here
     glPushMatrix();
     glTranslatef(x, 0.5f + verticalOffset, z);
 
-    // Bottom
-    glBegin(GL_QUADS);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+    // Draw car outline (neon style)
+    glLineWidth(2.5f);  // Thicker lines
+
+    // Car outline color
+    if (car.isBlue) {
+        glColor4f(0.0f, 0.8f * pulseIntensity, 1.0f * pulseIntensity, 0.95f); // Blue
+    } else {
+        glColor4f(1.0f * pulseIntensity, 0.3f * pulseIntensity, 0.1f * pulseIntensity, 0.95f); // Orange/red
+    }
+
+    // Bottom outline
+    glBegin(GL_LINE_LOOP);
     glVertex3f(-carWidth/2, 0.0f, -carLength/2);
     glVertex3f(carWidth/2, 0.0f, -carLength/2);
     glVertex3f(carWidth/2, 0.0f, carLength/2);
     glVertex3f(-carWidth/2, 0.0f, carLength/2);
     glEnd();
 
-    // Top
-    glBegin(GL_QUADS);
+    // Top outline
+    glBegin(GL_LINE_LOOP);
     glVertex3f(-carWidth/2, carHeight, -carLength/2);
     glVertex3f(carWidth/2, carHeight, -carLength/2);
-    glVertex3f(carWidth/2, carHeight, carLength/2);
-    glVertex3f(-carWidth/2, carHeight, -carLength/2);
-    glEnd();
-
-    // Front - more aerodynamic shape
-    glBegin(GL_QUADS);
-    glVertex3f(-carWidth/2, 0.0f, carLength/2);
-    glVertex3f(carWidth/2, 0.0f, carLength/2);
-    glVertex3f(carWidth/2, carHeight * 0.8f, carLength/2 - 0.3f);
-    glVertex3f(-carWidth/2, carHeight * 0.8f, carLength/2 - 0.3f);
-
-    // Additional front hood slant
-    glVertex3f(-carWidth/2, carHeight * 0.8f, carLength/2 - 0.3f);
-    glVertex3f(carWidth/2, carHeight * 0.8f, carLength/2 - 0.3f);
     glVertex3f(carWidth/2, carHeight, carLength/2 - 1.0f);
     glVertex3f(-carWidth/2, carHeight, carLength/2 - 1.0f);
     glEnd();
 
-    // Back - angled for sporty look
-    glBegin(GL_QUADS);
-    glVertex3f(-carWidth/2, 0.0f, -carLength/2);
-    glVertex3f(carWidth/2, 0.0f, -carLength/2);
-    glVertex3f(carWidth/2, carHeight * 0.9f, -carLength/2 + 0.4f);
-    glVertex3f(-carWidth/2, carHeight * 0.9f, -carLength/2 + 0.4f);
-    glEnd();
-
-    // Left side
-    glBegin(GL_QUADS);
-    glVertex3f(-carWidth/2, 0.0f, -carLength/2);
+    // Connect bottom to top
+    glBegin(GL_LINES);
+    // Front-left
     glVertex3f(-carWidth/2, 0.0f, carLength/2);
-    glVertex3f(-carWidth/2, carHeight, carLength/2);
-    glVertex3f(-carWidth/2, carHeight, -carLength/2);
-    glEnd();
+    glVertex3f(-carWidth/2, carHeight, carLength/2 - 1.0f);
 
-    // Right side
-    glBegin(GL_QUADS);
-    glVertex3f(carWidth/2, 0.0f, -carLength/2);
+    // Front-right
     glVertex3f(carWidth/2, 0.0f, carLength/2);
-    glVertex3f(carWidth/2, carHeight, carLength/2);
+    glVertex3f(carWidth/2, carHeight, carLength/2 - 1.0f);
+
+    // Back-left
+    glVertex3f(-carWidth/2, 0.0f, -carLength/2);
+    glVertex3f(-carWidth/2, carHeight, -carLength/2);
+
+    // Back-right
+    glVertex3f(carWidth/2, 0.0f, -carLength/2);
     glVertex3f(carWidth/2, carHeight, -carLength/2);
     glEnd();
 
-    // Windows (black with slight reflection)
-    glColor3f(0.1f, 0.1f, 0.3f);
-
-    // Front windshield
-    glBegin(GL_QUADS);
-    glVertex3f(-carWidth/2 + 0.2f, carHeight*0.6f, carLength/2 - 0.3f);
-    glVertex3f(carWidth/2 - 0.2f, carHeight*0.6f, carLength/2 - 0.3f);
-    glVertex3f(carWidth/2 - 0.2f, carHeight - 0.1f, carLength/2 - 1.0f);
-    glVertex3f(-carWidth/2 + 0.2f, carHeight - 0.1f, carLength/2 - 1.0f);
-    glEnd();
-
-    // Rear windshield
-    glBegin(GL_QUADS);
-    glVertex3f(-carWidth/2 + 0.2f, carHeight*0.6f, -carLength/2 + 0.2f);
-    glVertex3f(carWidth/2 - 0.2f, carHeight*0.6f, -carLength/2 + 0.2f);
-    glVertex3f(carWidth/2 - 0.2f, carHeight - 0.1f, -carLength/2 + 0.7f);
-    glVertex3f(-carWidth/2 + 0.2f, carHeight - 0.1f, -carLength/2 + 0.7f);
-    glEnd();
-
-    // Headlights with glowing effect (bright white)
-    float headlightPulse = 0.7f + 0.3f * sinf(time * 10.0f); // Fast pulsing for headlights
-    glColor3f(1.0f, 1.0f, headlightPulse);
-
-    glBegin(GL_QUADS);
-    // Left headlight
-    glVertex3f(-carWidth/2 + 0.2f, carHeight*0.3f, carLength/2 + 0.01f);
-    glVertex3f(-carWidth/2 + 0.6f, carHeight*0.3f, carLength/2 + 0.01f);
-    glVertex3f(-carWidth/2 + 0.6f, carHeight*0.5f, carLength/2 + 0.01f);
-    glVertex3f(-carWidth/2 + 0.2f, carHeight*0.5f, carLength/2 + 0.01f);
-
-    // Right headlight
-    glVertex3f(carWidth/2 - 0.2f, carHeight*0.3f, carLength/2 + 0.01f);
-    glVertex3f(carWidth/2 - 0.6f, carHeight*0.3f, carLength/2 + 0.01f);
-    glVertex3f(carWidth/2 - 0.6f, carHeight*0.5f, carLength/2 + 0.01f);
-    glVertex3f(carWidth/2 - 0.2f, carHeight*0.5f, carLength/2 + 0.01f);
-    glEnd();
-
-    // Add headlight beams
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-
+    // Add car glow
+    glLineWidth(4.0f);
     if (car.isBlue) {
-        glColor4f(0.0f, 0.7f, 1.0f, 0.3f); // Blue glow
+        glColor4f(0.0f, 0.8f * pulseIntensity, 1.0f * pulseIntensity, 0.3f); // Blue glow
     } else {
-        glColor4f(0.9f, 0.2f, 0.8f, 0.3f); // Pink glow
+        glColor4f(1.0f * pulseIntensity, 0.3f * pulseIntensity, 0.1f * pulseIntensity, 0.3f); // Orange/red glow
     }
 
-    glBegin(GL_TRIANGLES);
-    // Left headlight beam
-    glVertex3f(-carWidth/2 + 0.4f, carHeight*0.4f, carLength/2 + 0.01f);
-    glVertex3f(-carWidth/2 + 0.2f, carHeight*0.3f, carLength/2 + 5.0f);
-    glVertex3f(-carWidth/2 + 0.6f, carHeight*0.5f, carLength/2 + 5.0f);
-
-    // Right headlight beam
-    glVertex3f(carWidth/2 - 0.4f, carHeight*0.4f, carLength/2 + 0.01f);
-    glVertex3f(carWidth/2 - 0.2f, carHeight*0.3f, carLength/2 + 5.0f);
-    glVertex3f(carWidth/2 - 0.6f, carHeight*0.5f, carLength/2 + 5.0f);
+    // Bottom outline glow
+    glBegin(GL_LINE_LOOP);
+    glVertex3f(-carWidth/2, 0.0f, -carLength/2);
+    glVertex3f(carWidth/2, 0.0f, -carLength/2);
+    glVertex3f(carWidth/2, 0.0f, carLength/2);
+    glVertex3f(-carWidth/2, 0.0f, carLength/2);
     glEnd();
+    glLineWidth(2.5f);
 
-    // Tail lights (red with pulsing brake effect)
-    float tailLightPulse = 0.6f + 0.4f * sinf(time * 5.0f); // Slower pulsing for brake lights
-    glColor3f(1.0f * tailLightPulse, 0.1f, 0.1f);
-
-    glBegin(GL_QUADS);
-    // Left tail light
-    glVertex3f(-carWidth/2 + 0.2f, carHeight*0.3f, -carLength/2 + 0.01f);
-    glVertex3f(-carWidth/2 + 0.6f, carHeight*0.3f, -carLength/2 + 0.01f);
-    glVertex3f(-carWidth/2 + 0.6f, carHeight*0.7f, -carLength/2 + 0.01f);
-    glVertex3f(-carWidth/2 + 0.2f, carHeight*0.7f, -carLength/2 + 0.01f);
-
-    // Right tail light
-    glVertex3f(carWidth/2 - 0.2f, carHeight*0.3f, -carLength/2 + 0.01f);
-    glVertex3f(carWidth/2 - 0.6f, carHeight*0.3f, -carLength/2 + 0.01f);
-    glVertex3f(carWidth/2 - 0.6f, carHeight*0.7f, -carLength/2 + 0.01f);
-    glVertex3f(carWidth/2 - 0.2f, carHeight*0.7f, -carLength/2 + 0.01f);
-    glEnd();
-
-    // Add wheels
-    glColor3f(0.1f, 0.1f, 0.1f); // Black wheels
-
-    float wheelRadius = 0.5f;
-    float wheelWidth = 0.3f;
-
-    // Draw 4 wheels
-    for (int i = 0; i < 4; i++) {
-        float wheelX = (i % 2 == 0) ? -carWidth/2 - wheelWidth/2 : carWidth/2 + wheelWidth/2;
-        float wheelZ = (i < 2) ? carLength/2 - wheelRadius : -carLength/2 + wheelRadius;
-
-        // Spinning animation for wheels
-        float wheelRotation = fmodf(time * 720.0f, 360.0f); // Fast spinning
-
-        glPushMatrix();
-        glTranslatef(wheelX, wheelRadius, wheelZ);
-        glRotatef(90.0f, 0.0f, 1.0f, 0.0f); // Orient the wheel correctly
-        glRotatef(wheelRotation, 0.0f, 0.0f, 1.0f); // Spin the wheel
-
-        // Draw wheel as a cylinder with caps
-        GLUquadricObj *quadric = gluNewQuadric();
-        gluCylinder(quadric, wheelRadius, wheelRadius, wheelWidth, 16, 1);
-
-        // Draw wheel caps
-        gluDisk(quadric, 0.0f, wheelRadius, 16, 1);
-        glTranslatef(0.0f, 0.0f, wheelWidth);
-        gluDisk(quadric, 0.0f, wheelRadius, 16, 1);
-
-        gluDeleteQuadric(quadric);
-        glPopMatrix();
-    }
-
-    // Enhanced under-car glow with particle effect
-    // Pulsating underglow
-       // Enhanced under-car glow with particle effect
-    // Pulsating underglow
-    float glowPulse = 0.7f + 0.3f * sinf(time * 2.0f);
-
+    // Draw headlights and taillights
     if (car.isBlue) {
-        glColor4f(0.0f, 0.7f * glowPulse, 1.0f * glowPulse, 0.5f); // Blue glow
+        // Blue car with blue headlights
+        glColor3f(0.0f, 0.9f, 1.0f);
     } else {
-        glColor4f(0.9f * glowPulse, 0.2f * glowPulse, 0.8f * glowPulse, 0.5f); // Pink glow
+        // Orange car with yellow/orange headlights
+        glColor3f(1.0f, 0.8f, 0.3f);
     }
 
-    // Main underglow rectangle
-    glBegin(GL_QUADS);
-    glVertex3f(-carWidth/2 - 0.3f, -0.3f, -carLength/2 - 0.3f);
-    glVertex3f(carWidth/2 + 0.3f, -0.3f, -carLength/2 - 0.3f);
-    glVertex3f(carWidth/2 + 0.3f, -0.3f, carLength/2 + 0.3f);
-    glVertex3f(-carWidth/2 - 0.3f, -0.3f, carLength/2 + 0.3f);
-    glEnd();
-
-    // Add particles falling from the car
-    srand(static_cast<unsigned int>(car.x * 1000.0f + car.z * 100.0f));
-    glPointSize(3.0f);
+    // Headlights
+    glPointSize(5.0f);  // Bigger, brighter lights
     glBegin(GL_POINTS);
-
-    for (int i = 0; i < 20; i++) {
-        float particleOffset = static_cast<float>(rand()) / RAND_MAX * carLength - carLength/2;
-        float particleX = -carWidth/2 + static_cast<float>(rand()) / RAND_MAX * carWidth * 2.0f;
-        float particleLifetime = fmodf(time * 3.0f + i * 0.1f, 1.0f);
-        float particleY = -0.4f - particleLifetime * 0.5f;
-
-        // Fade out as particles fall
-        if (car.isBlue) {
-            glColor4f(0.0f, 0.7f, 1.0f, 1.0f - particleLifetime);
-        } else {
-            glColor4f(0.9f, 0.2f, 0.8f, 1.0f - particleLifetime);
-        }
-
-        glVertex3f(particleX, particleY, particleOffset);
-    }
-
+    glVertex3f(-carWidth/3, carHeight/3, carLength/2 + 0.1f);
+    glVertex3f(carWidth/3, carHeight/3, carLength/2 + 0.1f);
     glEnd();
-    glDisable(GL_BLEND);
 
+    // Add headlight glow
+    if (car.isBlue) {
+        glColor4f(0.0f, 0.9f, 1.0f, 0.5f);
+    } else {
+        glColor4f(1.0f, 0.8f, 0.3f, 0.5f);
+    }
+    glPointSize(10.0f);  // Big glow
+    glBegin(GL_POINTS);
+    glVertex3f(-carWidth/3, carHeight/3, carLength/2 + 0.1f);
+    glVertex3f(carWidth/3, carHeight/3, carLength/2 + 0.1f);
+    glEnd();
+
+    // Taillights
+    if (car.isBlue) {
+        glColor3f(0.0f, 0.5f, 1.0f);
+    } else {
+        glColor3f(1.0f, 0.2f, 0.2f);
+    }
+
+    glPointSize(4.0f);
+    glBegin(GL_POINTS);
+    glVertex3f(-carWidth/3, carHeight/3, -carLength/2 - 0.1f);
+    glVertex3f(carWidth/3, carHeight/3, -carLength/2 - 0.1f);
+    glEnd();
+
+    // Draw ground light trails - ENHANCED
+    float trailIntensity = 0.8f + 0.2f * sinf(time * 5.0f);
+
+    // Draw longer, more vibrant trails
+    if (car.isBlue) {
+        // Blue car with cyan trail
+        glBegin(GL_QUADS);
+        glColor4f(0.0f, 0.8f * trailIntensity, 1.0f * trailIntensity, 0.8f);
+        glVertex3f(-carWidth/4, 0.05f, -carLength/2);
+        glVertex3f(carWidth/4, 0.05f, -carLength/2);
+        glColor4f(0.0f, 0.8f * trailIntensity * 0.3f, 1.0f * trailIntensity * 0.3f, 0.0f); // Fade to transparent
+        glVertex3f(carWidth/4, 0.05f, -carLength/2 - 20.0f); // Longer trail
+        glVertex3f(-carWidth/4, 0.05f, -carLength/2 - 20.0f);
+        glEnd();
+    } else {
+        // Orange car with orange/red trail
+        glBegin(GL_QUADS);
+        glColor4f(1.0f * trailIntensity, 0.5f * trailIntensity, 0.0f, 0.8f);
+        glVertex3f(-carWidth/4, 0.05f, -carLength/2);
+        glVertex3f(carWidth/4, 0.05f, -carLength/2);
+        glColor4f(1.0f * trailIntensity * 0.3f, 0.5f * trailIntensity * 0.3f, 0.0f, 0.0f); // Fade to transparent
+        glVertex3f(carWidth/4, 0.05f, -carLength/2 - 20.0f); // Longer trail
+        glVertex3f(-carWidth/4, 0.05f, -carLength/2 - 20.0f);
+        glEnd();
+    }
+
+    glLineWidth(1.0f);
+    glDisable(GL_BLEND);
     glPopMatrix();
 }
 
-void drawMoon() {
-    float time = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
 
-    glPushMatrix();
-
-    // Position the moon on the right above buildings
-    glTranslatef(20.0f, 25.0f, -50.0f);
-
-    glDisable(GL_LIGHTING);
-
-    // Enhanced moon with detailed surface
-    glColor3f(0.95f, 0.95f, 1.0f);
-    GLUquadricObj *moon = gluNewQuadric();
-    gluQuadricTexture(moon, GL_TRUE);
-    gluSphere(moon, 4.0f, 30, 30); // Larger and more detailed moon
-
-    // Enhanced moon glow
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-
-    // Inner glow (bright)
-    glColor4f(0.9f, 0.9f, 1.0f, 0.5f);
-    gluSphere(moon, 4.2f, 30, 30);
-
-    // Multiple layers of fading outer glow
-    for (float i = 0.0f; i < 1.0f; i += 0.2f) {
-        float alpha = 0.4f * (1.0f - i);
-        float pulseSize = 1.0f + 0.1f * sinf(time * 1.0f + i * 3.0f);
-        glColor4f(0.9f, 0.9f, 1.0f, alpha);
-        gluSphere(moon, 4.5f + i * 3.0f * pulseSize, 30, 30);
-    }
-
-    // Moon craters with more detail
-    glColor3f(0.85f, 0.85f, 0.9f);
-
-    // Add 8-10 different sized craters in various positions
-    for (int i = 0; i < 10; i++) {
-        glPushMatrix();
-        // Use consistent random positions based on index
-        srand(i * 123);
-        float craterX = -3.0f + static_cast<float>(rand()) / RAND_MAX * 6.0f;
-        float craterY = -3.0f + static_cast<float>(rand()) / RAND_MAX * 6.0f;
-        float craterZ = -1.0f + static_cast<float>(rand()) / RAND_MAX * 2.0f;
-        float craterSize = 0.3f + static_cast<float>(rand()) / RAND_MAX * 0.8f;
-
-        glTranslatef(craterX, craterY, craterZ);
-        gluSphere(moon, craterSize, 10, 10);
-        glPopMatrix();
-    }
-
-    gluDeleteQuadric(moon);
-
-    glDisable(GL_BLEND);
-    glEnable(GL_LIGHTING);
-
-    glPopMatrix();
-}
-
-void drawGalaxies() {
-    float time = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
-
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-    glDisable(GL_LIGHTING);
-
-    for (size_t i = 0; i < galaxies.size(); i++) {
-        const Galaxy& galaxy = galaxies[i];
-
-        glPushMatrix();
-        glTranslatef(galaxy.x, galaxy.y, galaxy.z);
-        glRotatef(galaxy.rotation + time * 5.0f, 0.0f, 1.0f, 0.0f);
-
-        if (galaxy.type == 0) { // Spiral galaxy
-            // Draw spiral arms
-            float armWidth = galaxy.size * 0.2f;
-
-            for (int arm = 0; arm < 2; arm++) {
-                float armRotation = arm * 180.0f; // Rotate arms 180 degrees apart
-
-                for (float t = 0.0f; t < 6.0f; t += 0.1f) {
-                    float r = t * galaxy.size / 6.0f;
-                    float theta = t * 2.5f + armRotation;
-                    float x = r * cosf(theta);
-                    float z = r * sinf(theta);
-
-                    // Color based on distance from center
-                    float blueIntensity = (6.0f - t) / 6.0f;
-                    float redIntensity = t / 6.0f;
-                    float brightness = 0.7f + 0.3f * sinf(time + t);
-
-                    glColor4f(0.6f * redIntensity * brightness,
-                              0.4f * brightness,
-                              0.8f * blueIntensity * brightness,
-                              0.3f * (1.0f - t/6.0f) * brightness);
-
-                    glPointSize(armWidth * (1.0f - t/6.0f) + 1.0f);
-                    glBegin(GL_POINTS);
-                    glVertex3f(x, 0.0f, z);
-                    glEnd();
-
-                    // Draw some additional stars around the arm
-                    glPointSize(1.0f);
-                    glBegin(GL_POINTS);
-                    for (int j = 0; j < 3; j++) {
-                        float offsetX = x + (static_cast<float>(rand()) / RAND_MAX - 0.5f) * armWidth;
-                        float offsetZ = z + (static_cast<float>(rand()) / RAND_MAX - 0.5f) * armWidth;
-                        glVertex3f(offsetX, 0.0f, offsetZ);
-                    }
-                    glEnd();
-                }
-            }
-
-            // Galaxy core
-            glColor4f(1.0f, 0.9f, 0.7f, 0.7f);
-            GLUquadricObj *core = gluNewQuadric();
-            gluSphere(core, galaxy.size * 0.15f, 16, 16);
-            gluDeleteQuadric(core);
-
-            // Core glow
-            glColor4f(0.8f, 0.7f, 1.0f, 0.3f);
-            GLUquadricObj *glow = gluNewQuadric();
-            gluSphere(glow, galaxy.size * 0.25f, 16, 16);
-            gluDeleteQuadric(glow);
-        }
-        else { // Elliptical galaxy
-            // Draw as a fuzzy ellipsoid
-            glScalef(1.0f, 0.4f, 1.0f); // Flatten it
-
-            // Draw layers of decreasing opacity
-            for (float r = 0.0f; r < 1.0f; r += 0.2f) {
-                float size = galaxy.size * (1.0f - r);
-                float alpha = 0.3f * (1.0f - r);
-
-                glColor4f(0.8f, 0.7f, 1.0f, alpha);
-                GLUquadricObj *layer = gluNewQuadric();
-                gluSphere(layer, size, 16, 16);
-                gluDeleteQuadric(layer);
-            }
-
-            // Add some random stars within the elliptical galaxy
-            glPointSize(2.0f);
-            glBegin(GL_POINTS);
-            for (int j = 0; j < 100; j++) {
-                float phi = static_cast<float>(rand()) / RAND_MAX * 2.0f * M_PI;
-                float theta = static_cast<float>(rand()) / RAND_MAX * M_PI;
-                float r = static_cast<float>(rand()) / RAND_MAX * galaxy.size * 0.8f;
-
-                float x = r * sinf(theta) * cosf(phi);
-                float y = r * sinf(theta) * sinf(phi) * 0.4f; // Flatten
-                float z = r * cosf(theta);
-
-                float brightness = static_cast<float>(rand()) / RAND_MAX;
-                glColor4f(0.7f + 0.3f * brightness,
-                          0.7f + 0.3f * brightness,
-                          1.0f,
-                          0.7f * brightness);
-
-                glVertex3f(x, y, z);
-            }
-            glEnd();
-        }
-
-        glPopMatrix();
-    }
-
-    glEnable(GL_LIGHTING);
-    glDisable(GL_BLEND);
-}
 
 void drawSky() {
-    // Set dark blue/purple sky color (no day/night cycle - always night)
-    glClearColor(0.02f, 0.0f, 0.05f, 1.0f);
-
-    // Draw galaxies first (as background)
-    drawGalaxies();
-
-    // Draw stars with enhanced visuals
     float time = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
 
+    // Draw stars
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE);
 
     for (size_t i = 0; i < stars.size(); i++) {
         const Star& star = stars[i];
 
-        // Different twinkling patterns for different stars
+        // Twinkling effect
         float twinkleSpeed = 3.0f + (i % 5) * 1.0f;
-        float twinklePhase = i * 0.1f;
-        float twinkle = 0.5f + 0.5f * sinf(time * twinkleSpeed + twinklePhase);
+        float twinkle = 0.5f + 0.5f * sinf(time * twinkleSpeed + i * 0.1f);
         float brightness = star.brightness * twinkle;
 
         // Variable star size
         glPointSize(star.size * (0.8f + 0.4f * twinkle));
 
-        // Different star colors
-        if (star.colorType < 7) { // White/blue stars (most common)
-            glColor3f(0.8f + 0.2f * twinkle,
-                      0.8f + 0.2f * twinkle,
-                      1.0f);
-        }
-        else if (star.colorType < 9) { // Yellow/orange stars
-            glColor3f(1.0f,
-                      0.7f + 0.3f * twinkle,
-                      0.4f * twinkle);
-        }
-        else { // Red giants (rare)
-            glColor3f(1.0f,
-                      0.3f * twinkle,
-                      0.2f * twinkle);
+        // Star color
+        if (star.colorType < 7) { // White/blue
+            glColor3f(0.8f + 0.2f * twinkle, 0.8f + 0.2f * twinkle, 1.0f);
+        } else if (star.colorType < 9) { // Yellow/orange
+            glColor3f(1.0f, 0.7f + 0.3f * twinkle, 0.4f * twinkle);
+        } else { // Red
+            glColor3f(1.0f, 0.3f * twinkle, 0.2f * twinkle);
         }
 
         glBegin(GL_POINTS);
         glVertex3f(star.x, star.y, star.z);
         glEnd();
 
-        // Add glow for brighter stars
+        // Add glow for bright stars
         if (star.brightness > 0.8f) {
             float glowSize = star.size * 3.0f * twinkle;
 
-            // Set glow color (slightly match star color)
-            if (star.colorType < 7) { // White/blue stars
+            if (star.colorType < 7) {
                 glColor4f(0.6f, 0.6f, 1.0f, 0.2f * brightness);
-            }
-            else if (star.colorType < 9) { // Yellow/orange stars
+            } else if (star.colorType < 9) {
                 glColor4f(1.0f, 0.7f, 0.3f, 0.2f * brightness);
-            }
-            else { // Red giants
+            } else {
                 glColor4f(1.0f, 0.3f, 0.2f, 0.2f * brightness);
             }
 
-            // Draw glow as a point with larger size
             glPointSize(glowSize);
             glBegin(GL_POINTS);
             glVertex3f(star.x, star.y, star.z);
             glEnd();
-
-            // For a few super bright stars, add lens flare effect
-            if (star.brightness > 0.95f && i % 10 == 0) {
-                float flareIntensity = 0.7f * twinkle;
-
-                // Draw horizontal flare line
-                glBegin(GL_LINES);
-                glColor4f(1.0f, 1.0f, 1.0f, 0.3f * flareIntensity);
-                glVertex3f(star.x - glowSize, star.y, star.z);
-                glVertex3f(star.x + glowSize, star.y, star.z);
-                glEnd();
-
-                // Draw vertical flare line
-                glBegin(GL_LINES);
-                glColor4f(1.0f, 1.0f, 1.0f, 0.3f * flareIntensity);
-                glVertex3f(star.x, star.y - glowSize, star.z);
-                glVertex3f(star.x, star.y + glowSize, star.z);
-                glEnd();
-            }
         }
     }
-
-    // Draw enhanced moon last (in foreground)
-    drawMoon();
 
     glDisable(GL_BLEND);
 }
 
 void calculateFPS() {
     frameCount++;
-
     currentTime = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
     float timeInterval = currentTime - previousTime;
 
@@ -1531,9 +1137,9 @@ void calculateFPS() {
         previousTime = currentTime;
         frameCount = 0;
 
-        // Display FPS in window title
+        // Update window title with FPS
         char title[64];
-        snprintf(title, sizeof(title), "Enhanced Retrowave Landscape - FPS: %.1f", fps);
+        snprintf(title, sizeof(title), "Retrowave City - FPS: %.1f", fps);
         glutSetWindowTitle(title);
     }
 }
