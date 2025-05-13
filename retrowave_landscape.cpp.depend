@@ -1,13 +1,12 @@
 # depslib dependency file v1.0
-1747170233 source:c:\users\marwa\documents\college\term-6\graphics\retrowave_landscape.cpp\main.cpp
+1747173529 source:c:\users\marwa\documents\college\term-6\graphics\retrowave_landscape.cpp\main.cpp
 	<windows.h>
-	<GL/glu.h>
-	<GL/gl.h>
 	<GL/glut.h>
-	<stdlib.h>
 	<cmath>
 	<vector>
 	<ctime>
+	<string>
+	<iostream>
 	<cstdio>
 
 1301114762 c:\program files (x86)\codeblocks\mingw\include\windows.h
