@@ -67,10 +67,8 @@
 
 ## 👀 VISUALS
 
-<div align="center">
 ![RetroRace Banner](live-demo.png)
-  
-</div>
+
 
 <div align="center">
   <i>Experience the thrill of night racing through neon-lit cityscapes</i>
