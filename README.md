@@ -6,7 +6,7 @@
 <img src="https://img.shields.io/badge/STATUS-IN_DEVELOPMENT-brightgreen?style=for-the-badge">
 <img src="https://img.shields.io/badge/ENGINE-CUSTOM-red?style=for-the-badge">
 
-![RetroRace Banner](https://user-images.githubusercontent.com/YOUR_ID/retrorace-banner.gif)
+![RetroRace Banner](live-demo.png)
 
 **Buckle up for a neon-soaked, adrenaline-fueled race through the digital grid!**
 
