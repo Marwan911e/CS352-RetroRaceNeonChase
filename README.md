@@ -6,7 +6,6 @@
 <img src="https://img.shields.io/badge/STATUS-IN_DEVELOPMENT-brightgreen?style=for-the-badge">
 <img src="https://img.shields.io/badge/ENGINE-CUSTOM-red?style=for-the-badge">
 
-![RetroRace Banner](https://user-images.githubusercontent.com/YOUR_ID/retrorace-banner.gif)
 
 **Buckle up for a neon-soaked, adrenaline-fueled race through the digital grid!**
 
@@ -68,10 +67,8 @@
 
 ## 👀 VISUALS
 
-<div align="center">
-  <img src="https://user-images.githubusercontent.com/YOUR_ID/retrorace-gameplay1.png" width="48%" />
-  <img src="https://user-images.githubusercontent.com/YOUR_ID/retrorace-gameplay2.png" width="48%" />
-</div>
+![RetroRace Banner](live-demo.png)
+
 
 <div align="center">
   <i>Experience the thrill of night racing through neon-lit cityscapes</i>
