@@ -302,6 +302,11 @@ git push origin feature/amazing-feature
         <b>Marwan911e</b><br />
         Project Lead
       </td>
+      <td align="center">
+        <img src="https://github.com/husseinlshaarawy.png" width="100px;" alt=""/><br />
+        <b>husseinlshaarawy</b><br />
+        Collaborator
+      </td>
       <!-- Add more team members as needed -->
     </tr>
   </table>
