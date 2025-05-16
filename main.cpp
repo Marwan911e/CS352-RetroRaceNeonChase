@@ -148,6 +148,56 @@ void drawSky();
 void calculateFPS();
 void initAudio();
 void cleanup();
+// Added new function prototypes for the shapes
+void drawPyramid(float time);
+void drawTorus(float time);
+
+// Retrowave color palette (use consistently throughout)
+struct RetroColor {
+    static void Pink(float time, float alpha = 1.0f) {
+        float pulse = 0.7f + 0.3f * sinf(time * 2.0f);
+        glColor4f(1.0f * pulse, 0.1f * pulse, 0.8f * pulse, alpha);
+    }
+
+    static void Cyan(float time, float alpha = 1.0f) {
+        float pulse = 0.7f + 0.3f * sinf(time * 2.0f);
+        glColor4f(0.0f, 0.8f * pulse, 1.0f * pulse, alpha);
+    }
+
+    static void Gold(float time, float alpha = 1.0f) {
+        float pulse = 0.7f + 0.3f * sinf(time * 2.0f);
+        glColor4f(1.0f * pulse, 0.8f * pulse, 0.0f, alpha);
+    }
+
+    static void Purple(float time, float alpha = 1.0f) {
+        float pulse = 0.7f + 0.3f * sinf(time * 2.0f);
+        glColor4f(0.6f * pulse, 0.0f, 1.0f * pulse, alpha);
+    }
+
+    static void getPinkMaterial(float time, float alpha, GLfloat* color) {
+        float pulse = 0.7f + 0.3f * sinf(time * 2.0f);
+        color[0] = 1.0f * pulse;
+        color[1] = 0.1f * pulse;
+        color[2] = 0.8f * pulse;
+        color[3] = alpha;
+    }
+
+    static void getCyanMaterial(float time, float alpha, GLfloat* color) {
+        float pulse = 0.7f + 0.3f * sinf(time * 2.0f);
+        color[0] = 0.0f;
+        color[1] = 0.8f * pulse;
+        color[2] = 1.0f * pulse;
+        color[3] = alpha;
+    }
+
+    static void getGoldMaterial(float time, float alpha, GLfloat* color) {
+        float pulse = 0.7f + 0.3f * sinf(time * 2.0f);
+        color[0] = 1.0f * pulse;
+        color[1] = 0.8f * pulse;
+        color[2] = 0.0f;
+        color[3] = alpha;
+    }
+};
 
 int main(int argc, char** argv) {
     // Initialize GLUT
@@ -306,6 +356,11 @@ void display() {
 
     // Draw sky with stars
     drawSky();
+
+    // Add the new shapes
+    float time = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
+    drawPyramid(time);
+    drawTorus(time);
 
     // Draw spinners (futuristic elements)
     drawSpinners();
@@ -500,7 +555,7 @@ void drawBuilding(const Building& building) {
     glLineWidth(3.0f);  // Thicker lines for better visibility
 
     // Building outline color - hot pink (classic retrowave color)
-    glColor4f(1.0f, 0.1f, 0.8f, 0.95f);  // More vibrant pink
+    RetroColor::Pink(time, 0.95f);
 
     // Front face - vertical edges
     glBegin(GL_LINES);
@@ -543,7 +598,7 @@ void drawBuilding(const Building& building) {
 
     // Add outline glow for buildings
     glLineWidth(5.0f);
-    glColor4f(1.0f, 0.1f, 0.8f, 0.25f);  // Pink glow
+    RetroColor::Pink(time, 0.25f);  // Pink glow
 
     // Redraw front edges with glow
     glBegin(GL_LINES);
@@ -699,7 +754,7 @@ void drawGrid(float size, int divisions) {
         // Adjust color for neon effect - more vibrant magenta
         float pulse = 0.7f + 0.3f * sinf(time * 2.0f + i * 0.1f);
         float alpha = 0.4f + 0.6f * brightness * pulse;
-        glColor4f(1.0f, 0.1f, 0.8f, alpha);  // Brighter magenta
+        RetroColor::Pink(time, alpha);
 
         // Draw thicker line
         glLineWidth(2.5f);
@@ -721,7 +776,7 @@ void drawGrid(float size, int divisions) {
 
         float pulse = 0.7f + 0.3f * sinf(time * 2.0f + i * 0.1f + 1.5f);
         float alpha = 0.4f + 0.6f * brightness * pulse;
-        glColor4f(0.0f, 0.8f, 1.0f, alpha);  // Brighter cyan
+        RetroColor::Cyan(time, alpha);
 
         // Draw thicker line
         glLineWidth(2.5f);
@@ -764,9 +819,9 @@ void drawSpinner(const Spinner& spinner, float time) {
             float angle = static_cast<float>(i) / segments * 2.0f * M_PI;
 
             if (spinner.isPink) {
-                glColor4f(0.9f * pulse, 0.2f * pulse, 0.8f * pulse, 0.8f); // Pink
+                RetroColor::Pink(time, 0.8f);
             } else {
-                glColor4f(0.0f, 0.7f * pulse, 1.0f * pulse, 0.8f); // Blue
+                RetroColor::Cyan(time, 0.8f);
             }
 
             float x = radius * cosf(angle);
@@ -781,9 +836,9 @@ void drawSpinner(const Spinner& spinner, float time) {
             float angle = static_cast<float>(i) / (segments/4) * 2.0f * M_PI;
 
             if (spinner.isPink) {
-                glColor4f(0.9f * pulse, 0.2f * pulse, 0.8f * pulse, 0.5f); // Pink
+                RetroColor::Pink(time, 0.5f);
             } else {
-                glColor4f(0.0f, 0.7f * pulse, 1.0f * pulse, 0.5f); // Blue
+                RetroColor::Cyan(time, 0.5f);
             }
 
             glVertex3f(0.0f, 0.0f, 0.0f);
@@ -807,9 +862,9 @@ void drawSpinner(const Spinner& spinner, float time) {
 
                 // Alternate colors along the spiral
                 if ((r + i) % 2 == 0) {
-                    glColor4f(0.9f * pulse, 0.2f * pulse, 0.8f * pulse, 0.8f); // Pink
+                    RetroColor::Pink(time, 0.8f);
                 } else {
-                    glColor4f(0.0f, 0.7f * pulse, 1.0f * pulse, 0.8f); // Blue
+                    RetroColor::Cyan(time, 0.8f);
                 }
 
                 float radius = innerRadius + (outerRadius - innerRadius) * i / segments;
@@ -826,9 +881,9 @@ void drawSpinner(const Spinner& spinner, float time) {
             float angle = static_cast<float>(i) / segments * 2.0f * M_PI;
 
             if (i % 2 == 0) {
-                glColor4f(0.9f * pulse, 0.2f * pulse, 0.8f * pulse, 0.8f); // Pink
+                RetroColor::Pink(time, 0.8f);
             } else {
-                glColor4f(0.0f, 0.7f * pulse, 1.0f * pulse, 0.8f); // Blue
+                RetroColor::Cyan(time, 0.8f);
             }
 
             float x = radius * cosf(angle);
@@ -843,12 +898,13 @@ void drawSpinner(const Spinner& spinner, float time) {
     glPopMatrix();
 }
 
+// Updated tunnel function to make it bigger
 void drawTunnel(float radius, int segments, int rings) {
     float time = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
 
-    // Position the tunnel in the sky
+    // Position the tunnel in the sky - adjusted position for bigger tunnel
     glPushMatrix();
-    glTranslatef(0.0f, 35.0f, -70.0f);
+    glTranslatef(0.0f, 40.0f, -90.0f); // Moved higher and farther back
 
     // Rotate for better visibility
     glRotatef(15.0f, 1.0f, 0.0f, 0.0f);
@@ -858,6 +914,9 @@ void drawTunnel(float radius, int segments, int rings) {
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+    // INCREASED RADIUS from 30.0f to 50.0f to make the tunnel bigger
+    radius = 50.0f;
 
     // Draw tunnel grid lines
     glLineWidth(2.0f);
@@ -870,14 +929,15 @@ void drawTunnel(float radius, int segments, int rings) {
 
         // Pink for odd radials, blue for even
         if (i % 2 == 0) {
-            glColor4f(0.9f, 0.2f, 0.8f, 0.8f);
+            RetroColor::Pink(time, 0.8f);
         } else {
-            glColor4f(0.0f, 0.7f, 1.0f, 0.8f);
+            RetroColor::Cyan(time, 0.8f);
         }
 
         glBegin(GL_LINE_STRIP);
         for (int r = 0; r < rings; r++) {
-            float depth = -30.0f + r * 2.0f + tunnelDepth;
+            // Increased depth range for a deeper tunnel
+            float depth = -50.0f + r * 3.0f + tunnelDepth;
             float scaleFactor = (1.0f - r / (float)rings) * 0.9f + 0.1f;
 
             // Create a perspective effect
@@ -889,18 +949,19 @@ void drawTunnel(float radius, int segments, int rings) {
         glEnd();
     }
 
-    // Draw concentric rings
-    for (int r = 0; r < rings; r++) {
-        float depth = -30.0f + r * 2.0f + tunnelDepth;
+    // Draw concentric rings with increased count
+    for (int r = 0; r < rings + 5; r++) { // Added 5 more rings
+        // Increased depth range
+        float depth = -50.0f + r * 3.0f + tunnelDepth;
         float scaleFactor = (1.0f - r / (float)rings) * 0.9f + 0.1f;
 
         // Alternate between pink and blue rings
         if (r % 2 == 0) {
             float pulse = 0.7f + 0.3f * sinf(time * 2.0f + r * 0.3f);
-            glColor4f(0.9f * pulse, 0.2f * pulse, 0.8f * pulse, 0.7f - (float)r/rings * 0.5f);
+            RetroColor::Pink(time, 0.7f - (float)r/rings * 0.5f);
         } else {
             float pulse = 0.7f + 0.3f * sinf(time * 2.0f + r * 0.3f + M_PI);
-            glColor4f(0.0f, 0.7f * pulse, 1.0f * pulse, 0.7f - (float)r/rings * 0.5f);
+            RetroColor::Cyan(time, 0.7f - (float)r/rings * 0.5f);
         }
 
         glBegin(GL_LINE_LOOP);
@@ -943,9 +1004,9 @@ void drawCar(const Car& car) {
 
     // Car outline color
     if (car.isBlue) {
-        glColor4f(0.0f, 0.8f * pulseIntensity, 1.0f * pulseIntensity, 0.95f); // Blue
+        RetroColor::Cyan(time, 0.95f);
     } else {
-        glColor4f(1.0f * pulseIntensity, 0.3f * pulseIntensity, 0.1f * pulseIntensity, 0.95f); // Orange/red
+        RetroColor::Gold(time, 0.95f);
     }
 
     // Bottom outline
@@ -986,9 +1047,9 @@ void drawCar(const Car& car) {
     // Add car glow
     glLineWidth(4.0f);
     if (car.isBlue) {
-        glColor4f(0.0f, 0.8f * pulseIntensity, 1.0f * pulseIntensity, 0.3f); // Blue glow
+        RetroColor::Cyan(time, 0.3f);
     } else {
-        glColor4f(1.0f * pulseIntensity, 0.3f * pulseIntensity, 0.1f * pulseIntensity, 0.3f); // Orange/red glow
+        RetroColor::Gold(time, 0.3f);
     }
 
     // Bottom outline glow
@@ -1072,8 +1133,6 @@ void drawCar(const Car& car) {
     glPopMatrix();
 }
 
-
-
 void drawSky() {
     float time = glutGet(GLUT_ELAPSED_TIME) / 1000.0f;
 
@@ -1125,6 +1184,243 @@ void drawSky() {
     }
 
     glDisable(GL_BLEND);
+}
+
+// New function to draw a pyramid shape (replacing teapot)
+void drawPyramid(float time) {
+    glPushMatrix();
+
+    // Position the pyramid in the sky
+    float hoverY = 20.0f + sinf(time * 0.5f) * 3.0f; // Hovering effect
+    glTranslatef(-30.0f, hoverY, -40.0f);
+
+    // Rotate the pyramid
+    glRotatef(time * 20.0f, 0.0f, 1.0f, 0.2f);
+
+    // Scale the pyramid
+    float scale = 3.0f + sinf(time * 0.7f) * 0.5f; // Pulsating scale
+    glScalef(scale, scale, scale);
+
+    // Set material properties using retrowave color palette
+    glEnable(GL_LIGHTING);
+
+    // Use the retrowave colors - alternate between pink and cyan
+    float pulse = 0.7f + 0.3f * sinf(time * 2.0f);
+
+    // Choose color based on time for pulsing effect
+    bool usePink = (sinf(time * 0.5f) > 0);
+    GLfloat pyramidColor[4];
+
+    if (usePink) {
+        // Hot pink (classic retrowave color)
+        RetroColor::getPinkMaterial(time, 1.0f, pyramidColor);
+    } else {
+        // Cyan (classic retrowave color)
+        RetroColor::getCyanMaterial(time, 1.0f, pyramidColor);
+    }
+
+    GLfloat specular[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    GLfloat shininess[] = {50.0f};
+
+    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, pyramidColor);
+    glMaterialfv(GL_FRONT, GL_SPECULAR, specular);
+    glMaterialfv(GL_FRONT, GL_SHININESS, shininess);
+
+    // Disable lighting temporarily for neon wireframe effect
+    glDisable(GL_LIGHTING);
+
+    // Draw pyramid wireframe - base is a square
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+    // Draw wireframe with thicker lines for neon effect
+    glLineWidth(2.5f);
+
+    if (usePink) {
+        RetroColor::Pink(time, 0.95f);
+    } else {
+        RetroColor::Cyan(time, 0.95f);
+    }
+
+    // Draw base
+    glBegin(GL_LINE_LOOP);
+    glVertex3f(-1.0f, -1.0f, -1.0f);
+    glVertex3f(1.0f, -1.0f, -1.0f);
+    glVertex3f(1.0f, -1.0f, 1.0f);
+    glVertex3f(-1.0f, -1.0f, 1.0f);
+    glEnd();
+
+    // Draw edges from base to apex
+    glBegin(GL_LINES);
+    glVertex3f(-1.0f, -1.0f, -1.0f);
+    glVertex3f(0.0f, 2.0f, 0.0f);
+
+    glVertex3f(1.0f, -1.0f, -1.0f);
+    glVertex3f(0.0f, 2.0f, 0.0f);
+
+    glVertex3f(1.0f, -1.0f, 1.0f);
+    glVertex3f(0.0f, 2.0f, 0.0f);
+
+    glVertex3f(-1.0f, -1.0f, 1.0f);
+    glVertex3f(0.0f, 2.0f, 0.0f);
+    glEnd();
+
+    // Add glow effect
+    glLineWidth(4.0f);
+
+    if (usePink) {
+        RetroColor::Pink(time, 0.3f); // Pink glow
+    } else {
+        RetroColor::Cyan(time, 0.3f); // Cyan glow
+    }
+
+    // Redraw lines with glow
+    glBegin(GL_LINES);
+    glVertex3f(-1.0f, -1.0f, -1.0f);
+    glVertex3f(0.0f, 2.0f, 0.0f);
+
+    glVertex3f(1.0f, -1.0f, -1.0f);
+    glVertex3f(0.0f, 2.0f, 0.0f);
+    glEnd();
+
+    // Reset line width
+    glLineWidth(1.0f);
+
+    // Re-enable lighting for solid model
+    glEnable(GL_LIGHTING);
+
+    // Draw semi-transparent faces for the pyramid
+    pyramidColor[3] = 0.3f; // Make it semi-transparent
+    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, pyramidColor);
+
+    // Draw pyramid faces (triangles)
+    glBegin(GL_TRIANGLES);
+    // Front face
+    glNormal3f(0.0f, 0.5f, 0.5f);  // Approximate normal
+    glVertex3f(0.0f, 2.0f, 0.0f);
+    glVertex3f(-1.0f, -1.0f, 1.0f);
+    glVertex3f(1.0f, -1.0f, 1.0f);
+
+    // Right face
+    glNormal3f(0.5f, 0.5f, 0.0f);  // Approximate normal
+    glVertex3f(0.0f, 2.0f, 0.0f);
+    glVertex3f(1.0f, -1.0f, 1.0f);
+    glVertex3f(1.0f, -1.0f, -1.0f);
+
+    // Back face
+    glNormal3f(0.0f, 0.5f, -0.5f);  // Approximate normal
+    glVertex3f(0.0f, 2.0f, 0.0f);
+    glVertex3f(1.0f, -1.0f, -1.0f);
+    glVertex3f(-1.0f, -1.0f, -1.0f);
+
+    // Left face
+    glNormal3f(-0.5f, 0.5f, 0.0f);  // Approximate normal
+    glVertex3f(0.0f, 2.0f, 0.0f);
+    glVertex3f(-1.0f, -1.0f, -1.0f);
+    glVertex3f(-1.0f, -1.0f, 1.0f);
+    glEnd();
+
+    glDisable(GL_BLEND);
+    glPopMatrix();
+}
+
+// Updated torus function to use consistent retrowave colors
+void drawTorus(float time) {
+    glPushMatrix();
+
+    // Position the torus
+    float orbitX = sinf(time * 0.4f) * 20.0f;
+    float orbitZ = cosf(time * 0.4f) * 20.0f;
+    glTranslatef(orbitX, 15.0f, -30.0f + orbitZ);
+
+    // Rotate the torus continuously
+    glRotatef(time * 50.0f, 1.0f, 0.5f, 0.0f);
+
+    // Set material properties using retrowave colors
+    glEnable(GL_LIGHTING);
+
+    // Calculate color pulse
+    float pulse = 0.7f + 0.3f * sinf(time * 1.5f);
+
+    // Alternate between retrowave colors
+    int colorChoice = static_cast<int>(time * 0.2f) % 3;
+    GLfloat torusColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+
+    switch (colorChoice) {
+        case 0: // Hot magenta/pink
+            RetroColor::getPinkMaterial(time, 1.0f, torusColor);
+            break;
+        case 1: // Cyan/blue
+            RetroColor::getCyanMaterial(time, 1.0f, torusColor);
+            break;
+        case 2: // Vibrant yellow/gold
+            RetroColor::getGoldMaterial(time, 1.0f, torusColor);
+            break;
+    }
+
+    GLfloat specular[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    GLfloat shininess[] = {40.0f};
+
+    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, torusColor);
+    glMaterialfv(GL_FRONT, GL_SPECULAR, specular);
+    glMaterialfv(GL_FRONT, GL_SHININESS, shininess);
+
+    // Temporarily disable lighting for wireframe effect
+    glDisable(GL_LIGHTING);
+
+    // Draw wireframe with thicker lines for neon effect
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glLineWidth(2.5f);
+
+    // Use same color for wireframe as selected material
+    switch (colorChoice) {
+        case 0:
+            RetroColor::Pink(time, 0.95f);
+            break;
+        case 1:
+            RetroColor::Cyan(time, 0.95f);
+            break;
+                case 2:
+            RetroColor::Gold(time, 0.95f);
+            break;
+    }
+
+    // Draw wireframe torus using glutWireTorus with retrowave colors
+    glutWireTorus(1.0f, 4.0f, 16, 48);
+
+    // Add glow effect
+    glLineWidth(4.0f);
+
+    switch (colorChoice) {
+        case 0:
+            RetroColor::Pink(time, 0.3f);
+            break;
+        case 1:
+            RetroColor::Cyan(time, 0.3f);
+            break;
+        case 2:
+            RetroColor::Gold(time, 0.3f);
+            break;
+    }
+
+    // Redraw some rings for glow effect
+    glutWireTorus(1.1f, 4.1f, 8, 24);
+
+    // Reset line width
+    glLineWidth(1.0f);
+
+    // Re-enable lighting for solid model
+    glEnable(GL_LIGHTING);
+
+    // Draw solid torus with transparency for glow effect
+    torusColor[3] = 0.2f; // Make it semi-transparent
+    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, torusColor);
+
+    glutSolidTorus(0.8f, 4.2f, 16, 48); // Different proportions for effect
+
+    glDisable(GL_BLEND);
+    glPopMatrix();
 }
 
 void calculateFPS() {
