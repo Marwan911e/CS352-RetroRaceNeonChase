@@ -6,7 +6,6 @@
 <img src="https://img.shields.io/badge/STATUS-IN_DEVELOPMENT-brightgreen?style=for-the-badge">
 <img src="https://img.shields.io/badge/ENGINE-CUSTOM-red?style=for-the-badge">
 
-![RetroRace Banner](https://user-images.githubusercontent.com/YOUR_ID/retrorace-banner.gif)
 
 **Buckle up for a neon-soaked, adrenaline-fueled race through the digital grid!**
 
@@ -68,10 +67,8 @@
 
 ## 👀 VISUALS
 
-<div align="center">
-  <img src="https://user-images.githubusercontent.com/YOUR_ID/retrorace-gameplay1.png" width="48%" />
-  <img src="https://user-images.githubusercontent.com/YOUR_ID/retrorace-gameplay2.png" width="48%" />
-</div>
+![RetroRace Banner](live-demo.png)
+
 
 <div align="center">
   <i>Experience the thrill of night racing through neon-lit cityscapes</i>
@@ -304,6 +301,11 @@ git push origin feature/amazing-feature
         <img src="https://github.com/Marwan911e.png" width="100px;" alt=""/><br />
         <b>Marwan911e</b><br />
         Project Lead
+      </td>
+      <td align="center">
+        <img src="https://github.com/husseinlshaarawy.png" width="100px;" alt=""/><br />
+        <b>husseinlshaarawy</b><br />
+        Collaborator
       </td>
       <!-- Add more team members as needed -->
     </tr>
