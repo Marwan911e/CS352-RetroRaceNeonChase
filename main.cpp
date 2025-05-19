@@ -12,7 +12,7 @@ const int SCR_WIDTH = 1200;
 const int SCR_HEIGHT = 800;
 
 // Camera variables
-float cameraX = 0.0f, cameraY = 10.0f, cameraZ = 30.0f;
+float cameraX = 0.0f, cameraY = 10.0f, cameraZ = 60.0f;
 float lookX = 0.0f, lookY = 0.0f, lookZ = -1.0f;
 
 // Animation variables
@@ -152,7 +152,7 @@ void cleanup();
 void drawPyramid(float time);
 void drawTorus(float time);
 
-// Retrowave color palette (use consistently throughout)
+// Retro wave color palette (use consistently throughout)
 struct RetroColor {
     static void Pink(float time, float alpha = 1.0f) {
         float pulse = 0.7f + 0.3f * sinf(time * 2.0f);
@@ -475,11 +475,11 @@ void keyboard(unsigned char key, int x, int y) {
             cameraX -= lookX * speed;
             cameraZ -= lookZ * speed;
             break;
-        case 'a': // Strafe left
+        case 'd': // Strafe left
             cameraX -= lookZ * speed;
             cameraZ += lookX * speed;
             break;
-        case 'd': // Strafe right
+        case 'a': // Strafe right
             cameraX += lookZ * speed;
             cameraZ -= lookX * speed;
             break;
@@ -1186,7 +1186,7 @@ void drawSky() {
     glDisable(GL_BLEND);
 }
 
-// New function to draw a pyramid shape (replacing teapot)
+// New function to draw a pyramid shape
 void drawPyramid(float time) {
     glPushMatrix();
 
@@ -1324,7 +1324,7 @@ void drawPyramid(float time) {
     glPopMatrix();
 }
 
-// Updated torus function to use consistent retrowave colors
+// Updated torus function to use consistent retro wave colors
 void drawTorus(float time) {
     glPushMatrix();
 
@@ -1435,7 +1435,7 @@ void calculateFPS() {
 
         // Update window title with FPS
         char title[64];
-        snprintf(title, sizeof(title), "Retrowave City - FPS: %.1f", fps);
+        snprintf(title, sizeof(title), "Retro Wave city - 221003166 - 221001810 - FPS: %.1f", fps);
         glutSetWindowTitle(title);
     }
 }
